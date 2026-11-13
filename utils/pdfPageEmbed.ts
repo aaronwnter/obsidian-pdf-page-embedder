@@ -1,12 +1,34 @@
 export type PdfPageEmbed = {
 	embedText: string;
 	pdfPath: string;
+	pdfTarget: string;
 	pageNumber: number;
 	displayValue: string | null;
 };
 
 const EMBED_PATTERN = /!\[\[([^\]\n]+)\]\]/g;
-const PDF_PAGE_TARGET_PATTERN = /^(.*\.pdf)#page=([1-9]\d*)$/i;
+
+function parsePdfPageTarget(target: string): {
+	pdfPath: string;
+	pdfTarget: string;
+	pageNumber: number;
+} | null {
+	const pdfTarget = target.trim();
+	const fragmentIndex = pdfTarget.lastIndexOf("#");
+	if (fragmentIndex === -1) return null;
+
+	const pdfPath = pdfTarget.slice(0, fragmentIndex).trim();
+	if (!pdfPath.toLowerCase().endsWith(".pdf")) return null;
+
+	const page = new URLSearchParams(pdfTarget.slice(fragmentIndex + 1)).get("page");
+	if (!page?.match(/^[1-9]\d*$/)) return null;
+
+	return {
+		pdfPath,
+		pdfTarget,
+		pageNumber: Number.parseInt(page, 10),
+	};
+}
 
 /**
  * Finds a standard PDF page embed when the cursor is anywhere inside it.
@@ -24,14 +46,13 @@ export function findPdfPageEmbedAtCursor(
 		if (cursorCh < start || cursorCh > end) continue;
 
 		const [target, rawDisplayValue] = match[1].split("|", 2);
-		const pageMatch = target.trim().match(PDF_PAGE_TARGET_PATTERN);
-		if (!pageMatch) return null;
+		const pageTarget = parsePdfPageTarget(target);
+		if (!pageTarget) return null;
 		const displayValue = rawDisplayValue?.trim() || null;
 
 		return {
 			embedText: match[0],
-			pdfPath: pageMatch[1],
-			pageNumber: Number.parseInt(pageMatch[2], 10),
+			...pageTarget,
 			displayValue,
 		};
 	}

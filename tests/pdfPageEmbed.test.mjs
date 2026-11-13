@@ -15,6 +15,7 @@ test("finds a PDF page embed from anywhere inside its range", () => {
 		assert.deepEqual(findPdfPageEmbedAtCursor(line, cursorCh), {
 			embedText: "![[PDFs/Landscape.pdf#page=7]]",
 			pdfPath: "PDFs/Landscape.pdf",
+			pdfTarget: "PDFs/Landscape.pdf#page=7",
 			pageNumber: 7,
 			displayValue: null,
 		});
@@ -27,6 +28,7 @@ test("preserves a numeric display value without treating it as a PDF width", () 
 		{
 			embedText: "![[PDFs/Portrait.pdf#page=2|600]]",
 			pdfPath: "PDFs/Portrait.pdf",
+			pdfTarget: "PDFs/Portrait.pdf#page=2",
 			pageNumber: 2,
 			displayValue: "600",
 		},
@@ -39,8 +41,22 @@ test("preserves a non-numeric display value", () => {
 		{
 			embedText: "![[PDFs/Portrait.pdf#page=2|Test]]",
 			pdfPath: "PDFs/Portrait.pdf",
+			pdfTarget: "PDFs/Portrait.pdf#page=2",
 			pageNumber: 2,
 			displayValue: "Test",
+		},
+	);
+});
+
+test("finds a page embed with documented PDF viewer parameters", () => {
+	assert.deepEqual(
+		findPdfPageEmbedAtCursor("![[PDFs/Portrait.pdf#page=2&height=400]]", 20),
+		{
+			embedText: "![[PDFs/Portrait.pdf#page=2&height=400]]",
+			pdfPath: "PDFs/Portrait.pdf",
+			pdfTarget: "PDFs/Portrait.pdf#page=2&height=400",
+			pageNumber: 2,
+			displayValue: null,
 		},
 	);
 });

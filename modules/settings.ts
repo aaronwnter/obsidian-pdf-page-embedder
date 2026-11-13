@@ -4,7 +4,7 @@ import { FolderSuggest } from "utils/suggest/folderSuggest";
 import { PdfPrinterSettings } from "./types";
 
 export const DEFAULT_SETTINGS: PdfPrinterSettings = {
-	imageFolder: "",
+	imageFolder: "PDF Page Images",
 	imageQuality: 0.5,
 	imageEmbedFormat: "![[${filename}]]",
 	preservePdfLink: false,

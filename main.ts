@@ -1,7 +1,8 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { formatPrintedPages } from "utils/formatPrintedPages";
-import { findPdfPageEmbedAtCursor } from "utils/pdfPageEmbed";
-import { Editor, Notice, Plugin, TFile, loadPdfJs } from "obsidian";
+import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
+import { getPdfPageOutputPath } from "utils/pdfPageOutput";
+import { Editor, normalizePath, Notice, Plugin, TFile, TFolder, loadPdfJs } from "obsidian";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_SETTINGS, PdfPrinterSettingsTab } from "modules/settings";
 import { registerPdfPreview } from "modules/pdfPreview";
@@ -29,6 +30,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			name: "Inspect PDF page embed at cursor (development)",
 			editorCallback: (editor: Editor) => this.inspectPdfPageEmbedAtCursor(editor),
 		});
+		this.addCommand({
+			id: "render-pdf-page-embed-at-cursor",
+			name: "Render PDF page embed at cursor (development)",
+			editorCallback: (editor: Editor) => this.renderPdfPageEmbedAtCursor(editor),
+		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
 	}
@@ -43,6 +49,49 @@ export default class PdfPrinterPlugin extends Plugin {
 	}
 
 	private inspectPdfPageEmbedAtCursor(editor: Editor): void {
+		const resolvedEmbed = this.resolvePdfPageEmbedAtCursor(editor);
+		if (!resolvedEmbed) return;
+		const { file, pageEmbed } = resolvedEmbed;
+
+		const displayValue = pageEmbed.displayValue
+			? `, display ${pageEmbed.displayValue}`
+			: "";
+		new Notice(
+			`Found ${file.path}, page ${pageEmbed.pageNumber}${displayValue}.`,
+		);
+	}
+
+	private async renderPdfPageEmbedAtCursor(editor: Editor): Promise<void> {
+		const resolvedEmbed = this.resolvePdfPageEmbedAtCursor(editor);
+		if (!resolvedEmbed) return;
+		const { file, pageEmbed } = resolvedEmbed;
+		const outputPath = getPdfPageOutputPath(
+			this.settings.imageFolder,
+			file.path,
+			pageEmbed.pageNumber,
+		);
+		const existingFile = this.app.vault.getFileByPath(outputPath);
+		if (existingFile) {
+			if (existingFile.extension === "webp") {
+				new Notice(`Reusing ${outputPath}.`);
+			} else {
+				new Notice(`Output path is already occupied: ${outputPath}`);
+			}
+			return;
+		}
+
+		const pages = await this.parsePdf(file, false, [pageEmbed.pageNumber]);
+		if (!pages?.[0]) return;
+
+		const outputFolder = outputPath.slice(0, outputPath.lastIndexOf("/"));
+		await this.ensureFolder(outputFolder);
+		await this.app.vault.createBinary(outputPath, pages[0].buffer);
+		new Notice(`Rendered page ${pageEmbed.pageNumber} to ${outputPath}.`);
+	}
+
+	private resolvePdfPageEmbedAtCursor(
+		editor: Editor,
+	): { file: TFile; pageEmbed: PdfPageEmbed } | null {
 		const cursor = editor.getCursor();
 		const pageEmbed = findPdfPageEmbedAtCursor(
 			editor.getLine(cursor.line),
@@ -50,7 +99,7 @@ export default class PdfPrinterPlugin extends Plugin {
 		);
 		if (!pageEmbed) {
 			new Notice("Place the cursor inside ![[file.pdf#page=N]].");
-			return;
+			return null;
 		}
 
 		const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
@@ -60,15 +109,24 @@ export default class PdfPrinterPlugin extends Plugin {
 		);
 		if (!file || file.extension !== "pdf") {
 			new Notice(`PDF not found: ${pageEmbed.pdfPath}`);
-			return;
+			return null;
 		}
 
-		const displayValue = pageEmbed.displayValue
-			? `, display ${pageEmbed.displayValue}`
-			: "";
-		new Notice(
-			`Found ${file.path}, page ${pageEmbed.pageNumber}${displayValue}.`,
-		);
+		return { file, pageEmbed };
+	}
+
+	private async ensureFolder(folderPath: string): Promise<void> {
+		const parts = normalizePath(folderPath).split("/");
+		let currentPath = "";
+		for (const part of parts) {
+			currentPath = currentPath ? `${currentPath}/${part}` : part;
+			const existingFile = this.app.vault.getAbstractFileByPath(currentPath);
+			if (!existingFile) {
+				await this.app.vault.createFolder(currentPath);
+			} else if (!(existingFile instanceof TFolder)) {
+				throw new Error(`Cannot create output folder at ${currentPath}.`);
+			}
+		}
 	}
 
 	private async printPdf(file: TFile, promptForRange = false): Promise<string | null> {
@@ -149,18 +207,27 @@ export default class PdfPrinterPlugin extends Plugin {
 	 * @throws Error if the canvas or context cannot be created.
 	 * @returns An array of strings representing the paths of the saved PNG images.
 	 */
-	async parsePdf(file: TFile, promptForRange = false): Promise<PdfPage[] | null> {
+	async parsePdf(
+		file: TFile,
+		promptForRange = false,
+		requestedPages?: number[],
+	): Promise<PdfPage[] | null> {
 		const pdfjs = await loadPdfJs();
 		const arrayBuffer = await this.app.vault.readBinary(file);
 		const buffer = new Uint8Array(arrayBuffer);
 		const document = await pdfjs.getDocument(buffer).promise;
 
 		const pages: number = document.numPages;
-		const selectedPages = promptForRange
+		const selectedPages = requestedPages ?? (promptForRange
 			? await promptForPageRange(this.app, pages)
-			: undefined;
+			: undefined);
 		if (selectedPages === null) {
 			await document.destroy();
+			return null;
+		}
+		if (selectedPages?.some((page) => page > pages)) {
+			await document.destroy();
+			new Notice(`Document '${file.name}' does not contain that page.`);
 			return null;
 		}
 		new Notice(`Printing document '${file.name}'...`);
