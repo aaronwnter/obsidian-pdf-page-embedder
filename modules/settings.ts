@@ -58,6 +58,10 @@ export class PdfPrinterSettingsTab extends PluginSettingTab {
 				"One folder per PDF (readable name + stable ID)",
 			)
 				.addOption(
+					"detailed-shallow-source-id",
+					"One folder per PDF (full source path + stable ID)",
+				)
+				.addOption(
 					"mirror-source-path",
 					"Mirror source PDF folders",
 				)

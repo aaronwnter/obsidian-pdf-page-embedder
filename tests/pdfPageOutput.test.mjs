@@ -51,6 +51,20 @@ test("creates a stable shallow folder per PDF", () => {
 	);
 });
 
+test("can keep the full source path readable without nesting folders", () => {
+	const outputPath = getPdfPageOutputPath(
+		"PDF Page Images",
+		"PDFs/Nested/Portrait.pdf",
+		3,
+		"detailed-shallow-source-id",
+	);
+
+	assert.match(
+		outputPath,
+		/^PDF Page Images\/PDFs--Nested--Portrait--[0-9a-f]{8}\/Portrait-003\.webp$/,
+	);
+});
+
 test("uses at least three digits for a page number without truncating larger pages", () => {
 	assert.equal(
 		getPdfPageOutputPath(

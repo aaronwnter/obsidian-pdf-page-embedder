@@ -1,4 +1,7 @@
-export type OutputPathStrategy = "shallow-source-id" | "mirror-source-path";
+export type OutputPathStrategy =
+	| "shallow-source-id"
+	| "detailed-shallow-source-id"
+	| "mirror-source-path";
 
 export interface PdfPrinterSettings {
 	imageFolder: string;

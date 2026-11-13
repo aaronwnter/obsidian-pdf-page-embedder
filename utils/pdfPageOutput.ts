@@ -30,8 +30,11 @@ export function getPdfPageOutputPath(
 		pdfPathWithoutExtension.lastIndexOf("/") + 1,
 	);
 	const paddedPage = String(pageNumber).padStart(3, "0");
+	const sourceId = sourcePathId(pdfPath);
 	const outputFolder = strategy === "mirror-source-path"
 		? `${imageFolder}/${pdfPathWithoutExtension}`
-		: `${imageFolder}/${fileName}--${sourcePathId(pdfPath)}`;
+		: strategy === "detailed-shallow-source-id"
+			? `${imageFolder}/${pdfPathWithoutExtension.split("/").join("--")}--${sourceId}`
+			: `${imageFolder}/${fileName}--${sourceId}`;
 	return `${outputFolder}/${fileName}-${paddedPage}.webp`;
 }
