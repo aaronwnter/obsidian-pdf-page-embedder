@@ -5,6 +5,7 @@ import { PdfPrinterSettings } from "./types";
 
 export const DEFAULT_SETTINGS: PdfPrinterSettings = {
 	imageFolder: "PDF Page Images",
+	outputPathStrategy: "shallow-source-id",
 	imageQuality: 0.5,
 	imageEmbedFormat: "![[${filename}]]",
 	preservePdfLink: false,
@@ -46,6 +47,25 @@ export class PdfPrinterSettingsTab extends PluginSettingTab {
 			`${q} results in approx. ${(2.24 + (9.8 * q) / (q + 0.7) + 16.5 * q ** 20).toFixed(1)} MB per 100 slides.`; //approximated from 350 random lecture slides from my lectures
 		const sizeHint = imageQualitySetting.descEl.createDiv({
 			text: sizeHintText(this.plugin.settings.imageQuality),
+		});
+
+	new Setting(this.containerEl)
+		.setName("Generated-image organization")
+		.setDesc("Choose whether generated pages mirror the source path or use one shallow folder per source PDF.")
+		.addDropdown((cb) => {
+			cb.addOption(
+				"shallow-source-id",
+				"One folder per PDF (readable name + stable ID)",
+			)
+				.addOption(
+					"mirror-source-path",
+					"Mirror source PDF folders",
+				)
+				.setValue(this.plugin.settings.outputPathStrategy)
+				.onChange(async (value) => {
+					this.plugin.settings.outputPathStrategy = value as PdfPrinterSettings["outputPathStrategy"];
+					await this.plugin.saveSettings();
+				});
 		});
 		imageQualitySetting.addSlider((cb) => {
 			cb.setLimits(0, 1, 0.01)

@@ -54,7 +54,7 @@ It will replace the original embed with a full, unambiguous path plus a page-spe
 ### Reusable, human-readable assets
 
 - The image output folder remains configurable.
-- Each PDF gets a deterministic, source-path-based subfolder. Identically named PDFs in different vault folders therefore cannot collide.
+- Generated-image organization is configurable: either mirror the source PDF path with no generated ID, or use one shallow, deterministic folder per PDF with a readable filename and stable short ID. Identically named PDFs in different vault folders therefore cannot collide.
 - Image names remain readable: `<PDF filename>-<three-digit page>.webp`.
 - If the expected output image already exists, it is reused and no duplicate is rendered.
 - A separate re-render command can explicitly replace an existing image when the source PDF changes.

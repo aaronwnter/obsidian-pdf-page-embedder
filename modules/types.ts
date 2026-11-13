@@ -1,5 +1,8 @@
+export type OutputPathStrategy = "shallow-source-id" | "mirror-source-path";
+
 export interface PdfPrinterSettings {
 	imageFolder: string;
+	outputPathStrategy: OutputPathStrategy;
 	imageQuality: number;
 	imageEmbedFormat: string;
 	preservePdfLink: boolean;

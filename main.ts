@@ -69,6 +69,7 @@ export default class PdfPrinterPlugin extends Plugin {
 			this.settings.imageFolder,
 			file.path,
 			pageEmbed.pageNumber,
+			this.settings.outputPathStrategy,
 		);
 		const existingFile = this.app.vault.getFileByPath(outputPath);
 		if (existingFile) {
