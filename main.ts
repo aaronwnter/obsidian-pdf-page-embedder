@@ -143,7 +143,7 @@ export default class PdfPrinterPlugin extends Plugin {
 			);
 			if (!canvas || !context) {
 				console.error(
-					"pdf-printer: could not generate canvas or context",
+				"pdf-page-embedder: could not generate canvas or context",
 				);
 				return [];
 			}
@@ -164,7 +164,7 @@ export default class PdfPrinterPlugin extends Plugin {
 				});
 			} else {
 				console.error(
-					`pdf-printer: could not generate blob for page ${i}`,
+				`pdf-page-embedder: could not generate blob for page ${i}`,
 				);
 			}
 			canvasFactory.destroy({ canvas, context });

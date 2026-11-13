@@ -1,63 +1,47 @@
-<h1 align="center">Obsidian PDF Printer</h1>
-<p align="center">
-<img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/cubexy/obsidian-pdf-printer/total">
-<img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/cubexy/obsidian-pdf-printer">
-<img alt="GitHub Issues or Pull Requests" src="https://img.shields.io/github/issues/cubexy/obsidian-pdf-printer">
-<img alt="TypeScript badge" src="https://shields.io/badge/TypeScript-3178C6?logo=TypeScript&logoColor=FFF&style=flat-square">
-</p>
+# PDF Page Embedder
 
-**PDF Printer** is a plugin for the Obsidian editor that converts PDF documents in your vault into images, making it easy to embed and annotate PDF content directly in your notes.
+An Obsidian plugin for converting PDF page embeds into reusable WebP images while keeping a link to the original PDF page.
 
-![showcase](media/showcase.gif)
+This is a personal development fork of [PDF Printer](https://github.com/cubexy/obsidian-pdf-printer). It retains PDF Printer's local PDF.js rendering foundation and is intended to add a faster cursor-based workflow for embeds such as `![[Slides.pdf#page=12]]`.
 
-## Features
+## Status
 
-- Convert PDF documents into WEBP images inside Obsidian
-- Batch conversion of multi-page PDFs
-- Print selected pages using comma-separated page ranges
-- Simple command to trigger conversion (or use button directly in PDF preview!)
-- User-definable image quality
+Initial development setup. The upstream PDF Printer behaviour is still present while the page-embed workflow is designed and implemented.
 
-## Installation
+## Development
 
-### Direct installation
+Requirements: Node.js, npm, Obsidian, and Neovim or another editor.
 
-PDF Printer was added to the official community plugins! Just search for "PDF Printer" in Obsidian's "Community Plugins" tab.
+```bash
+npm ci
+npm run dev
+```
 
-### Manual install
+`npm run dev` watches the source and writes `main.js` in this directory. The isolated test vault should link its plugin directory to this repository:
 
-1. Copy the project files into your vault's `.obsidian/plugins/pdf-printer/` folder
-2. Restart (or reload) Obsidian
-3. Enable **PDF Printer** in Settings > Community plugins
+```text
+<test-vault>/.obsidian/plugins/pdf-page-embedder -> <this repository>
+```
 
-## Usage
+Open the test vault in Obsidian, enable **PDF Page Embedder** under Community plugins, and reload the plugin after a build if Obsidian does not do so automatically.
 
-### From command palette
+Run the build and unit tests before committing:
 
-1. Select a link to a `![[file.pdf]]`
-2. Open the Command Palette and run **PDF Printer: Convert PDF to images**
-3. Images will be generated, saved in a seperate folder and the PDF link will be replaced with the WEBP image links for the pages
+```bash
+npm run build
+npm test
+```
 
-To print only selected pages, run **PDF Printer: Convert PDF page ranges to images** and enter a range such as `2-4` or `2-5, 7`. Only the selected pages get printed!
+## Planned workflow
 
-### From native PDF preview
+With the cursor inside:
 
-<img width="700" alt="Context menu for printing PDFs" src="https://github.com/user-attachments/assets/0f550dc5-96f9-40fb-a7ca-01dc23851694" />
+```markdown
+![[Lectures/Week 03.pdf#page=12]]
+```
 
-1. Click "…" and click on "Print to images" or "Print page range to images".
-2. Same as the command palette; images will be generated and saved!
+the page command will render or reuse a deterministic WebP asset, replace the embed, and place a page-specific source link below it. The existing selection-and-range workflow remains available.
 
-## Configuration
+## License and attribution
 
-- **Image quality** can be set from 0 (lowest) to 1 (highest) in the settings. A lower value reduces image quality, but also decreases file size.
-- A folder for **printed images** can be set to better organize your vault.
-- A **link to the printed PDF file** can be shown above the printed pages.
-- The **format for embedded images** can be set to allow for custom image widths and integrations with more specific workflows.
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request on the GitHub repository.
-
-## License
-
-This project is licensed under the MIT License.
+This project is derived from [PDF Printer](https://github.com/cubexy/obsidian-pdf-printer) by cubexy and remains licensed under the MIT License. The original copyright and license notice are preserved in [LICENSE](LICENSE).

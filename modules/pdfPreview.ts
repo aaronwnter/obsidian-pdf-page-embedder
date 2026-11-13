@@ -57,13 +57,13 @@ export function registerPdfPreview(
 				return;
 			menu.addItem((item) =>
 				item
-					.setTitle("PDF Printer: Print to images")
+					.setTitle("PDF Page Embedder: Print to images")
 					.setIcon("printer")
 					.onClick(() => printEmbed(file, embed)),
 			);
 			menu.addItem((item) =>
 				item
-					.setTitle("PDF Printer: Print page ranges to images")
+					.setTitle("PDF Page Embedder: Print page ranges to images")
 					.setIcon("printer")
 					.onClick(() => printEmbed(file, embed, true)),
 			);
@@ -221,7 +221,7 @@ export function registerPdfPreview(
 			}
 			new Notice(`Document '${file.name}' was printed successfully.`);
 		} catch (error) {
-			console.error("pdf-printer: failed to print PDF preview", error);
+			console.error("pdf-page-embedder: failed to print PDF preview", error);
 			new Notice(
 				`Could not print '${file.name}'. See the console for details.`,
 			);
