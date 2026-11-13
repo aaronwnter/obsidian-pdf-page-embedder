@@ -2,11 +2,11 @@
 
 An Obsidian plugin for converting PDF page embeds into reusable WebP images while keeping a link to the original PDF page.
 
-This is a personal development fork of [PDF Printer](https://github.com/cubexy/obsidian-pdf-printer). It retains PDF Printer's local PDF.js rendering foundation and is intended to add a faster cursor-based workflow for embeds such as `![[Slides.pdf#page=12]]`.
+This is a personal development fork of [PDF Printer](https://github.com/cubexy/obsidian-pdf-printer). It retains PDF Printer's local PDF.js rendering foundation and adds a page-embed workflow for reusable slide and document images.
 
 ## Status
 
-Initial development setup. The upstream PDF Printer behaviour is still present while the page-embed workflow is designed and implemented.
+Initial development setup. The upstream PDF Printer behaviour is still present while the page-embed workflow below is implemented incrementally.
 
 ## Development
 
@@ -34,13 +34,42 @@ npm test
 
 ## Planned workflow
 
-With the cursor inside:
+### Convert the page embed under the cursor
+
+With the cursor anywhere inside:
 
 ```markdown
 ![[Lectures/Week 03.pdf#page=12]]
 ```
 
-the page command will render or reuse a deterministic WebP asset, replace the embed, and place a page-specific source link below it. The existing selection-and-range workflow remains available.
+the page command will render or reuse only page 12. It will not require selecting the entire embed or opening a page-range prompt.
+
+It will preserve an optional image width and replace the original embed with a full, unambiguous path plus a page-specific source link below it:
+
+```markdown
+![[<output folder>/Lectures/Week 03/Week 03-012.webp]]
+[[Lectures/Week 03.pdf#page=12|Week 03 — page 12]]
+```
+
+### Reusable, human-readable assets
+
+- The image output folder remains configurable.
+- Each PDF gets a deterministic, source-path-based subfolder. Identically named PDFs in different vault folders therefore cannot collide.
+- Image names remain readable: `<PDF filename>-<three-digit page>.webp`.
+- If the expected output image already exists, it is reused and no duplicate is rendered.
+- A separate re-render command can explicitly replace an existing image when the source PDF changes.
+
+### Source-link placement
+
+The link to the source PDF page will support `none`, `above`, and `below` placement. `below` is the intended default for the cursor page command.
+
+### Keep the useful upstream workflows
+
+- The existing selection-and-page-range commands remain available for occasional multi-page conversion.
+- The native PDF-preview menu remains available.
+- WebP quality, output-folder, image-embed formatting, and spacing settings remain configurable.
+
+Vault-wide or whole-note conversion is deliberately not part of the first scope: this fork is designed around converting and reusing specific pages while studying.
 
 ## License and attribution
 
