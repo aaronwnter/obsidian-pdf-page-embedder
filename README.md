@@ -8,6 +8,8 @@ This is a personal development fork of [PDF Printer](https://github.com/cubexy/o
 
 Initial development setup. The upstream PDF Printer behaviour is still present while the page-embed workflow below is implemented incrementally.
 
+The current implementation and cursor-first next steps are tracked in [ROADMAP.md](ROADMAP.md).
+
 ## Development
 
 Requirements: Node.js, npm, Obsidian, and Neovim or another editor.
