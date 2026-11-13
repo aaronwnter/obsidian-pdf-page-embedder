@@ -3,12 +3,14 @@ export type OutputPathStrategy =
 	| "detailed-shallow-source-id"
 	| "mirror-source-path";
 
+export type SourceLinkPlacement = "none" | "above" | "below";
+
 export interface PdfPrinterSettings {
 	imageFolder: string;
 	outputPathStrategy: OutputPathStrategy;
 	imageQuality: number;
 	imageEmbedFormat: string;
-	preservePdfLink: boolean;
+	sourceLinkPlacement: SourceLinkPlacement;
 	newlineBetweenPages: boolean;
 }
 

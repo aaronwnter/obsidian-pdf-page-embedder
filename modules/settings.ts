@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS: PdfPrinterSettings = {
 	outputPathStrategy: "shallow-source-id",
 	imageQuality: 0.5,
 	imageEmbedFormat: "![[${filename}]]",
-	preservePdfLink: false,
+	sourceLinkPlacement: "below",
 	newlineBetweenPages: false,
 };
 
@@ -97,19 +97,19 @@ export class PdfPrinterSettingsTab extends PluginSettingTab {
 					});
 			});
 
-		new Setting(this.containerEl)
-			.setName("Show link to original PDF above printed images")
-			.setDesc(
-				"Keep a link to the original PDF above the printed images as a reference.",
-			)
-			.addToggle((cb) => {
-				cb.setValue(this.plugin.settings.preservePdfLink).onChange(
-					async (value) => {
-						this.plugin.settings.preservePdfLink = value;
-						await this.plugin.saveSettings();
-					},
-				);
-			});
+	new Setting(this.containerEl)
+		.setName("Source PDF link placement")
+		.setDesc("Keep a link to the original PDF above or below generated images, or omit it.")
+		.addDropdown((cb) => {
+			cb.addOption("none", "Do not add a source link")
+				.addOption("above", "Above generated images")
+				.addOption("below", "Below generated images")
+				.setValue(this.plugin.settings.sourceLinkPlacement)
+				.onChange(async (value) => {
+					this.plugin.settings.sourceLinkPlacement = value as PdfPrinterSettings["sourceLinkPlacement"];
+					await this.plugin.saveSettings();
+				});
+		});
 
 		new Setting(this.containerEl)
 			.setName("Newline between images")

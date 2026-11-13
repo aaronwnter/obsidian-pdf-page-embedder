@@ -5,14 +5,19 @@ export function formatPrintedPages(
 	imagePaths: string[],
 	settings: Pick<
 		PdfPrinterSettings,
-		"imageEmbedFormat" | "preservePdfLink" | "newlineBetweenPages"
+		"imageEmbedFormat" | "sourceLinkPlacement" | "newlineBetweenPages"
 	>,
 ): string {
 	const newline = settings.newlineBetweenPages ? "\n\n" : "\n";
 	const imageLinks = imagePaths.map((path) =>
 		settings.imageEmbedFormat.replace("${filename}", path),
 	).join(newline);
-	return settings.preservePdfLink
-		? `[[${pdfPath}]]\n${imageLinks}`
-		: `\n${imageLinks}`;
+	const sourceLink = `[[${pdfPath}]]`;
+	if (settings.sourceLinkPlacement === "above") {
+		return `${sourceLink}\n${imageLinks}`;
+	}
+	if (settings.sourceLinkPlacement === "below") {
+		return `\n${imageLinks}\n${sourceLink}`;
+	}
+	return `\n${imageLinks}`;
 }

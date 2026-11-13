@@ -1,4 +1,5 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
+import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
 import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
@@ -35,6 +36,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			name: "Render PDF page embed at cursor (development)",
 			editorCallback: (editor: Editor) => this.renderPdfPageEmbedAtCursor(editor),
 		});
+		this.addCommand({
+			id: "convert-pdf-page-embed-at-cursor",
+			name: "Convert PDF page embed at cursor",
+			editorCallback: (editor: Editor) => this.convertPdfPageEmbedAtCursor(editor),
+		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
 	}
@@ -65,29 +71,75 @@ export default class PdfPrinterPlugin extends Plugin {
 		const resolvedEmbed = this.resolvePdfPageEmbedAtCursor(editor);
 		if (!resolvedEmbed) return;
 		const { file, pageEmbed } = resolvedEmbed;
+		const renderedPage = await this.getOrRenderPdfPage(file, pageEmbed.pageNumber);
+		if (!renderedPage) return;
+		new Notice(
+			renderedPage.reused
+				? `Reusing ${renderedPage.outputPath}.`
+				: `Rendered page ${pageEmbed.pageNumber} to ${renderedPage.outputPath}.`,
+		);
+	}
+
+	private async convertPdfPageEmbedAtCursor(editor: Editor): Promise<void> {
+		const resolvedEmbed = this.resolvePdfPageEmbedAtCursor(editor);
+		if (!resolvedEmbed) return;
+		const { file, pageEmbed } = resolvedEmbed;
+		const cursor = editor.getCursor();
+		const renderedPage = await this.getOrRenderPdfPage(file, pageEmbed.pageNumber);
+		if (!renderedPage) return;
+
+		const currentLine = editor.getLine(cursor.line);
+		if (currentLine.slice(pageEmbed.start, pageEmbed.end) !== pageEmbed.embedText) {
+			new Notice("The PDF embed changed before it could be replaced.");
+			return;
+		}
+
+		const replacement = formatPdfPageEmbed(
+			renderedPage.outputPath,
+			file.path,
+			pageEmbed.pageNumber,
+			pageEmbed.displayValue,
+			this.settings,
+		);
+		editor.replaceRange(
+			replacement,
+			{ line: cursor.line, ch: pageEmbed.start },
+			{ line: cursor.line, ch: pageEmbed.end },
+		);
+		new Notice(
+			renderedPage.reused
+				? "Reused the page image and replaced the PDF embed."
+				: "Rendered the page image and replaced the PDF embed.",
+		);
+	}
+
+	private async getOrRenderPdfPage(
+		file: TFile,
+		pageNumber: number,
+	): Promise<{ outputPath: string; reused: boolean } | null> {
 		const outputPath = getPdfPageOutputPath(
 			this.settings.imageFolder,
 			file.path,
-			pageEmbed.pageNumber,
+			pageNumber,
 			this.settings.outputPathStrategy,
 		);
 		const existingFile = this.app.vault.getFileByPath(outputPath);
 		if (existingFile) {
 			if (existingFile.extension === "webp") {
-				new Notice(`Reusing ${outputPath}.`);
+				return { outputPath, reused: true };
 			} else {
 				new Notice(`Output path is already occupied: ${outputPath}`);
 			}
-			return;
+			return null;
 		}
 
-		const pages = await this.parsePdf(file, false, [pageEmbed.pageNumber]);
-		if (!pages?.[0]) return;
+		const pages = await this.parsePdf(file, false, [pageNumber]);
+		if (!pages?.[0]) return null;
 
 		const outputFolder = outputPath.slice(0, outputPath.lastIndexOf("/"));
 		await this.ensureFolder(outputFolder);
 		await this.app.vault.createBinary(outputPath, pages[0].buffer);
-		new Notice(`Rendered page ${pageEmbed.pageNumber} to ${outputPath}.`);
+		return { outputPath, reused: false };
 	}
 
 	private resolvePdfPageEmbedAtCursor(

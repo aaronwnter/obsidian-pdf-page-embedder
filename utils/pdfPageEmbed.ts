@@ -1,5 +1,7 @@
 export type PdfPageEmbed = {
 	embedText: string;
+	start: number;
+	end: number;
 	pdfPath: string;
 	pdfTarget: string;
 	pageNumber: number;
@@ -33,8 +35,8 @@ function parsePdfPageTarget(target: string): {
 /**
  * Finds a standard PDF page embed when the cursor is anywhere inside it.
  *
- * This intentionally supports only `![[file.pdf#page=N]]` plus an optional
- * Obsidian embed width (`|600`) for the first page-embed workflow.
+ * This supports a `#page=N` PDF fragment, optional PDF viewer parameters,
+ * and an optional pipe display value.
  */
 export function findPdfPageEmbedAtCursor(
 	line: string,
@@ -52,6 +54,8 @@ export function findPdfPageEmbedAtCursor(
 
 		return {
 			embedText: match[0],
+			start,
+			end,
 			...pageTarget,
 			displayValue,
 		};
