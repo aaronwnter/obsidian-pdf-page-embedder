@@ -14,7 +14,7 @@ The test vault contains small, non-sensitive PDFs under `PDFs/`:
 ## Manual cases
 
 - A direct page embed for page 1 and a later page, using `Landscape.pdf`.
-- A page embed with an image width, such as `![[PDFs/Portrait.pdf#page=2|600]]`.
+- A page embed with a display value, such as `![[PDFs/Portrait.pdf#page=2|Test]]`.
 - A plain PDF embed, to retain range-conversion coverage.
 - A missing PDF and an out-of-range page, to verify helpful failures.
 - The same direct-page conversion twice, to verify the image is reused.

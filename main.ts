@@ -1,5 +1,6 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { formatPrintedPages } from "utils/formatPrintedPages";
+import { findPdfPageEmbedAtCursor } from "utils/pdfPageEmbed";
 import { Editor, Notice, Plugin, TFile, loadPdfJs } from "obsidian";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_SETTINGS, PdfPrinterSettingsTab } from "modules/settings";
@@ -23,6 +24,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			name: "Convert PDF page ranges to images",
 			editorCallback: (editor: Editor) => this.printSelection(editor, true),
 		});
+		this.addCommand({
+			id: "inspect-pdf-page-embed-at-cursor",
+			name: "Inspect PDF page embed at cursor (development)",
+			editorCallback: (editor: Editor) => this.inspectPdfPageEmbedAtCursor(editor),
+		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
 	}
@@ -34,6 +40,35 @@ export default class PdfPrinterPlugin extends Plugin {
 		if (printedText === null) return;
 		editor.replaceSelection(printedText);
 		new Notice(`Document '${pdfFile.name}' was printed successfully.`);
+	}
+
+	private inspectPdfPageEmbedAtCursor(editor: Editor): void {
+		const cursor = editor.getCursor();
+		const pageEmbed = findPdfPageEmbedAtCursor(
+			editor.getLine(cursor.line),
+			cursor.ch,
+		);
+		if (!pageEmbed) {
+			new Notice("Place the cursor inside ![[file.pdf#page=N]].");
+			return;
+		}
+
+		const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
+		const file = this.app.metadataCache.getFirstLinkpathDest(
+			pageEmbed.pdfPath,
+			sourcePath,
+		);
+		if (!file || file.extension !== "pdf") {
+			new Notice(`PDF not found: ${pageEmbed.pdfPath}`);
+			return;
+		}
+
+		const displayValue = pageEmbed.displayValue
+			? `, display ${pageEmbed.displayValue}`
+			: "";
+		new Notice(
+			`Found ${file.path}, page ${pageEmbed.pageNumber}${displayValue}.`,
+		);
 	}
 
 	private async printPdf(file: TFile, promptForRange = false): Promise<string | null> {

@@ -44,7 +44,7 @@ With the cursor anywhere inside:
 
 the page command will render or reuse only page 12. It will not require selecting the entire embed or opening a page-range prompt.
 
-It will preserve an optional image width and replace the original embed with a full, unambiguous path plus a page-specific source link below it:
+It will replace the original embed with a full, unambiguous path plus a page-specific source link below it:
 
 ```markdown
 ![[<output folder>/Lectures/Week 03/Week 03-012.webp]]
@@ -58,6 +58,8 @@ It will preserve an optional image width and replace the original embed with a f
 - Image names remain readable: `<PDF filename>-<three-digit page>.webp`.
 - If the expected output image already exists, it is reused and no duplicate is rendered.
 - A separate re-render command can explicitly replace an existing image when the source PDF changes.
+
+PDF embeds use documented fragment parameters such as `#page=3&height=400`; the `|...` notation is not PDF width syntax. If a source embed includes a pipe value, the fork treats it as display text and will not silently turn a numeric value into a narrow image.
 
 ### Source-link placement
 
