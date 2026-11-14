@@ -2,7 +2,10 @@ import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
 import { findGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
-import { recordGeneratedPageProvenance } from "utils/generatedPageProvenance";
+import {
+	rebuildGeneratedPageProvenance,
+	recordGeneratedPageProvenance,
+} from "utils/generatedPageProvenance";
 import {
 	formatPdfPageSourceLink,
 	lineHasPdfPageSourceLink,
@@ -65,6 +68,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			id: "add-source-link-for-generated-image-at-cursor",
 			name: "Add source link for generated image at cursor",
 			editorCallback: (editor: Editor) => this.addSourceLinkForGeneratedImageAtCursor(editor),
+		});
+		this.addCommand({
+			id: "rebuild-generated-image-source-index",
+			name: "Rebuild generated-image source index",
+			callback: () => this.rebuildGeneratedImageSourceIndex(),
 		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
@@ -206,6 +214,26 @@ export default class PdfPrinterPlugin extends Plugin {
 			});
 		}
 		new Notice("Added the source PDF page link.");
+	}
+
+	private async rebuildGeneratedImageSourceIndex(): Promise<void> {
+		const files = this.app.vault.getFiles();
+		const { generatedPages, added } = rebuildGeneratedPageProvenance(
+			this.generatedPages,
+			files.filter((file) => file.extension === "webp").map((file) => file.path),
+			files.filter((file) => file.extension === "pdf").map((file) => file.path),
+			normalizePath(this.settings.imageFolder),
+		);
+		if (added === 0) {
+			new Notice("No unindexed generated images were found.");
+			return;
+		}
+
+		this.generatedPages = generatedPages;
+		await this.saveSettings();
+		new Notice(
+			`Rebuilt source records for ${added} generated image${added === 1 ? "" : "s"}.`,
+		);
 	}
 
 	private async getOrRenderPdfPage(

@@ -18,14 +18,11 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 - Persist generated-image provenance: WebP path to source PDF path, page number, and label.
 - Add a missing source PDF page link for a generated WebP embed under the cursor.
 - Avoid duplicating an equivalent source link already adjacent to that image.
-
-## Next: cursor-scoped workflow
-
-- Add **Rebuild generated-image source index** for assets created before provenance tracking existed.
+- Rebuild missing provenance records for generated WebPs in nested vault folders.
 
 An **Insert generated PDF page image** command is intentionally out of scope. Obsidian already makes it easy to embed an image directly, so this would add no meaningful UI benefit.
 
-## Later: broader scopes
+## Next: broader scopes
 
 - Add source links for generated images in the current note, with a preview of intended changes.
 - Add source links for generated images across the vault, with dry-run, summary, and confirmation.
