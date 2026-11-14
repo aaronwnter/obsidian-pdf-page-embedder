@@ -1,6 +1,7 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
+import { recordGeneratedPageProvenance } from "utils/generatedPageProvenance";
 import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
 import { Editor, normalizePath, Notice, Plugin, TFile, TFolder, loadPdfJs } from "obsidian";
@@ -8,10 +9,24 @@ import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_SETTINGS, PdfPrinterSettingsTab } from "modules/settings";
 import { registerPdfPreview } from "modules/pdfPreview";
 import { promptForPageRange } from "modules/pageRangeModal";
-import { PdfDocumentBuffer, PdfPage, PdfPrinterSettings } from "modules/types";
+import {
+	GeneratedPageIndex,
+	PdfDocumentBuffer,
+	PdfPage,
+	PdfPrinterSettings,
+} from "modules/types";
+
+type PluginData = Partial<PdfPrinterSettings> & {
+	generatedPages?: GeneratedPageIndex;
+};
+
+type LegacyPluginData = PluginData & {
+	preservePdfLink?: boolean;
+};
 
 export default class PdfPrinterPlugin extends Plugin {
 	settings!: PdfPrinterSettings;
+	generatedPages: GeneratedPageIndex = {};
 
 	async onload() {
 		await this.loadSettings();
@@ -71,7 +86,11 @@ export default class PdfPrinterPlugin extends Plugin {
 		const resolvedEmbed = this.resolvePdfPageEmbedAtCursor(editor);
 		if (!resolvedEmbed) return;
 		const { file, pageEmbed } = resolvedEmbed;
-		const renderedPage = await this.getOrRenderPdfPage(file, pageEmbed.pageNumber);
+		const renderedPage = await this.getOrRenderPdfPage(
+			file,
+			pageEmbed.pageNumber,
+			pageEmbed.displayValue,
+		);
 		if (!renderedPage) return;
 		new Notice(
 			renderedPage.reused
@@ -85,7 +104,11 @@ export default class PdfPrinterPlugin extends Plugin {
 		if (!resolvedEmbed) return;
 		const { file, pageEmbed } = resolvedEmbed;
 		const cursor = editor.getCursor();
-		const renderedPage = await this.getOrRenderPdfPage(file, pageEmbed.pageNumber);
+		const renderedPage = await this.getOrRenderPdfPage(
+			file,
+			pageEmbed.pageNumber,
+			pageEmbed.displayValue,
+		);
 		if (!renderedPage) return;
 
 		const currentLine = editor.getLine(cursor.line);
@@ -116,6 +139,7 @@ export default class PdfPrinterPlugin extends Plugin {
 	private async getOrRenderPdfPage(
 		file: TFile,
 		pageNumber: number,
+		label: string | null,
 	): Promise<{ outputPath: string; reused: boolean } | null> {
 		const outputPath = getPdfPageOutputPath(
 			this.settings.imageFolder,
@@ -126,6 +150,7 @@ export default class PdfPrinterPlugin extends Plugin {
 		const existingFile = this.app.vault.getFileByPath(outputPath);
 		if (existingFile) {
 			if (existingFile.extension === "webp") {
+				await this.rememberGeneratedPage(outputPath, file.path, pageNumber, label);
 				return { outputPath, reused: true };
 			} else {
 				new Notice(`Output path is already occupied: ${outputPath}`);
@@ -139,7 +164,24 @@ export default class PdfPrinterPlugin extends Plugin {
 		const outputFolder = outputPath.slice(0, outputPath.lastIndexOf("/"));
 		await this.ensureFolder(outputFolder);
 		await this.app.vault.createBinary(outputPath, pages[0].buffer);
+		await this.rememberGeneratedPage(outputPath, file.path, pageNumber, label);
 		return { outputPath, reused: false };
+	}
+
+	private async rememberGeneratedPage(
+		imagePath: string,
+		pdfPath: string,
+		pageNumber: number,
+		label: string | null,
+	): Promise<void> {
+		this.generatedPages = recordGeneratedPageProvenance(
+			this.generatedPages,
+			imagePath,
+			pdfPath,
+			pageNumber,
+			label,
+		);
+		await this.saveSettings();
 	}
 
 	private resolvePdfPageEmbedAtCursor(
@@ -197,15 +239,26 @@ export default class PdfPrinterPlugin extends Plugin {
 	}
 
 	async loadSettings() {
+		const savedData = await this.loadData() as LegacyPluginData | null;
+		const {
+			generatedPages = {},
+			preservePdfLink: legacyPreservePdfLink,
+			...savedSettings
+		} = savedData ?? {};
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			await this.loadData(),
+			savedSettings,
 		);
+		this.generatedPages = generatedPages;
+		if (legacyPreservePdfLink !== undefined) await this.saveSettings();
 	}
 
 	async saveSettings() {
-		await this.saveData(this.settings);
+		await this.saveData({
+			...this.settings,
+			generatedPages: this.generatedPages,
+		});
 	}
 
 	/**

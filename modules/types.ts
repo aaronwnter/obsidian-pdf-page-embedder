@@ -5,6 +5,14 @@ export type OutputPathStrategy =
 
 export type SourceLinkPlacement = "none" | "above" | "below";
 
+export type GeneratedPageProvenance = {
+	pdfPath: string;
+	pageNumber: number;
+	label: string | null;
+};
+
+export type GeneratedPageIndex = Record<string, GeneratedPageProvenance>;
+
 export interface PdfPrinterSettings {
 	imageFolder: string;
 	outputPathStrategy: OutputPathStrategy;

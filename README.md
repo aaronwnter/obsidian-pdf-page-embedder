@@ -6,9 +6,9 @@ This is a personal development fork of [PDF Printer](https://github.com/cubexy/o
 
 ## Status
 
-Initial development setup. The upstream PDF Printer behaviour is still present while the page-embed workflow below is implemented incrementally.
+Active cursor-first development. The upstream PDF Printer behaviour remains available while the page-embed workflow is implemented incrementally.
 
-The current implementation and cursor-first next steps are tracked in [ROADMAP.md](ROADMAP.md).
+The current implementation and cursor-first next steps are tracked in [ROADMAP.md](ROADMAP.md). Session-specific project state and working rules are in [HANDOFF.md](HANDOFF.md).
 
 ## Development
 

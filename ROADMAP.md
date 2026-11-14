@@ -15,10 +15,10 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 - Replace the PDF embed under the cursor with the generated WebP embed.
 - Add a page-specific source PDF link above, below, or not at all, according to settings.
 - Preserve a pipe display value as the generated source-link label.
+- Persist generated-image provenance: WebP path to source PDF path, page number, and label.
 
 ## Next: cursor-scoped workflow
 
-- Record generated-image provenance: generated WebP path to source PDF path, page number, and label.
 - Add **Add source link for generated image at cursor**. It will find a generated WebP embed at the cursor and add its missing source PDF page link using the configured placement.
 - Prevent duplicate adjacent source links when the command is run again.
 - Add **Rebuild generated-image source index** for assets created before provenance tracking existed.
