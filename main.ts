@@ -1,7 +1,12 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
+import { findGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
 import { recordGeneratedPageProvenance } from "utils/generatedPageProvenance";
+import {
+	formatPdfPageSourceLink,
+	lineHasPdfPageSourceLink,
+} from "utils/pdfPageSourceLink";
 import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
 import { Editor, normalizePath, Notice, Plugin, TFile, TFolder, loadPdfJs } from "obsidian";
@@ -55,6 +60,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			id: "convert-pdf-page-embed-at-cursor",
 			name: "Convert PDF page embed at cursor",
 			editorCallback: (editor: Editor) => this.convertPdfPageEmbedAtCursor(editor),
+		});
+		this.addCommand({
+			id: "add-source-link-for-generated-image-at-cursor",
+			name: "Add source link for generated image at cursor",
+			editorCallback: (editor: Editor) => this.addSourceLinkForGeneratedImageAtCursor(editor),
 		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
@@ -134,6 +144,68 @@ export default class PdfPrinterPlugin extends Plugin {
 				? "Reused the page image and replaced the PDF embed."
 				: "Rendered the page image and replaced the PDF embed.",
 		);
+	}
+
+	private addSourceLinkForGeneratedImageAtCursor(editor: Editor): void {
+		if (this.settings.sourceLinkPlacement === "none") {
+			new Notice("Source-link placement is set to none.");
+			return;
+		}
+
+		const cursor = editor.getCursor();
+		const pageEmbed = findGeneratedPageEmbedAtCursor(
+			editor.getLine(cursor.line),
+			cursor.ch,
+		);
+		if (!pageEmbed) {
+			new Notice("Place the cursor inside a generated WebP embed.");
+			return;
+		}
+
+		const provenance = this.generatedPages[normalizePath(pageEmbed.imagePath)];
+		if (!provenance) {
+			new Notice("No source PDF page is recorded for this WebP image.");
+			return;
+		}
+
+		const previousLine = cursor.line > 0
+			? editor.getLine(cursor.line - 1)
+			: "";
+		const nextLine = cursor.line < editor.lineCount() - 1
+			? editor.getLine(cursor.line + 1)
+			: "";
+		if (
+			lineHasPdfPageSourceLink(
+				previousLine,
+				provenance.pdfPath,
+				provenance.pageNumber,
+			) || lineHasPdfPageSourceLink(
+				nextLine,
+				provenance.pdfPath,
+				provenance.pageNumber,
+			)
+		) {
+			new Notice("A source link is already adjacent to this image.");
+			return;
+		}
+
+		const sourceLink = formatPdfPageSourceLink(
+			provenance.pdfPath,
+			provenance.pageNumber,
+			provenance.label,
+		);
+		if (this.settings.sourceLinkPlacement === "above") {
+			editor.replaceRange(`${sourceLink}\n`, {
+				line: cursor.line,
+				ch: pageEmbed.start,
+			});
+		} else {
+			editor.replaceRange(`\n${sourceLink}`, {
+				line: cursor.line,
+				ch: pageEmbed.end,
+			});
+		}
+		new Notice("Added the source PDF page link.");
 	}
 
 	private async getOrRenderPdfPage(

@@ -7,7 +7,7 @@
 - The test vault plugin path is a symlink to this repository:
   `.obsidian/plugins/pdf-page-embedder`.
 
-Use only the isolated test vault for development and manual tests. Do not inspect or modify the personal vault unless the user explicitly authorizes it.
+Use only the isolated test vault for development and manual tests. NEVER inspect or modify the PersonalVault or ObsidianVault.
 
 ## Working agreement
 
@@ -15,7 +15,7 @@ Use only the isolated test vault for development and manual tests. Do not inspec
 2. Build and run `npm test`.
 3. The user manually tests the change in the test vault.
 4. Fix any issues, then commit only after the user accepts the result.
-5. Do not push unless the user explicitly asks. The user currently asked to hold pushes.
+5. Do not push unless the user explicitly asks.
 
 Start the development watcher with:
 
@@ -38,6 +38,7 @@ Useful commands in the test vault:
 - `Inspect PDF page embed at cursor (development)`
 - `Render PDF page embed at cursor (development)`
 - `Convert PDF page embed at cursor`
+- `Add source link for generated image at cursor`
 
 ## Test fixtures
 
@@ -45,11 +46,9 @@ The test vault contains `Example PDF.pdf`, `Landscape.pdf`, `Portrait.pdf`, and 
 
 ## Next task
 
-Implement **Add source link for generated image at cursor**. It should:
+Implement **Rebuild generated-image source index** for WebP assets created before
+provenance tracking was added. It should reconstruct `generatedPages` without
+changing notes or image files.
 
-- Find a generated WebP embed under the cursor.
-- Look up its provenance in `generatedPages`.
-- Add the source PDF page link using the configured placement.
-- Avoid adding a duplicate adjacent source link when run again.
+Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes are intentionally deferred; see [[ROADMAP.md]].
 
-Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes are intentionally deferred; see [ROADMAP.md](ROADMAP.md).
