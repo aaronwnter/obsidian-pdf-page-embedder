@@ -22,13 +22,38 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 
 An **Insert generated PDF page image** command is intentionally out of scope. Obsidian already makes it easy to embed an image directly, so this would add no meaningful UI benefit.
 
-## Next: broader scopes
+## Next: ordered work
 
-- Add source links for generated images in the current note, with a preview of intended changes.
-- Add source links for generated images across the vault, with dry-run, summary, and confirmation.
-- Re-render or overwrite an existing page image when the source PDF changes.
+1. Define and implement source lifecycle behavior.
+   - Decide what happens to generated images and provenance when a source PDF is renamed.
+   - Detect when a source PDF changes.
+   - Refresh images only through an explicit user action. Never overwrite them automatically.
+2. Replace the selection-based conversion pipeline with one provenance-aware service that resolves the PDF embed under the cursor.
+   - Accept only plain PDF embeds such as `![[Lectures/Week 03.pdf]]` for range and full-document conversion.
+   - Treat `![[Lectures/Week 03.pdf#page=12]]` as a single-page conversion. Do not offer range or full-document conversion for it.
+   - Use deterministic output paths, reuse existing images, and record provenance for every generated page.
+3. Add two cursor commands for a plain PDF embed: `Convert PDF pages` and `Convert and insert PDF pages`.
+   - Both commands open the same input prompt.
+   - Empty or whitespace-only input converts the full document.
+   - `full`, in any letter case, converts the full document.
+   - Page expressions such as `2-5` and `2, 5, 7-9` convert the inclusive selected pages.
+   - Convert only creates or reuses generated files and records provenance without editing the note.
+   - Convert and insert replaces the plain PDF embed with generated image embeds and follows the configured image spacing.
+   - A full-document insert always adds one link to the source PDF above the generated image group, ignoring `sourceLinkPlacement`.
+   - A range insert adds a page-specific source link for every generated image according to `sourceLinkPlacement`.
+4. Remove the development-only commands once the user-facing commands replace their useful behavior. Remove the old selection and UUID-based conversion code with them.
+5. Add source links for generated images in the current note, with a preview of intended changes.
+6. Convert all plain PDF embeds in the current note.
+7. Convert all plain PDF embeds across the vault, with a dry run and confirmation prompt.
+8. Clean up remaining stale code and tests. Optimize only a measured bottleneck.
+
+## Open Questions
+
+- Should rename handling move generated images to their new deterministic paths, or keep their existing paths and update only provenance?
+- Should stale-source detection use modification time, a content hash, or both?
 
 ## Non-goals for now
 
 - Automatically rewriting notes whenever a generated WebP is manually embedded.
 - Adding every conceivable output-layout option before real usage identifies a need.
+- Vault-wide source-link insertion for existing generated images. Users can add links while reviewing a note.
