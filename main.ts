@@ -18,6 +18,8 @@ import {
 } from "utils/pdfPageSourceLink";
 import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
+import { hasValidPdfPageNumbers } from "utils/pdfPageRequest";
+import { repairPdfPrinterSettings } from "utils/settingsValidation";
 import {
 	Editor,
 	normalizePath,
@@ -667,13 +669,14 @@ export default class PdfPrinterPlugin extends Plugin {
 			preservePdfLink: legacyPreservePdfLink,
 			...savedSettings
 		} = savedData ?? {};
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
+		const { settings, repaired } = repairPdfPrinterSettings(
 			savedSettings,
+			DEFAULT_SETTINGS,
+			normalizePath,
 		);
+		this.settings = settings;
 		this.generatedPages = generatedPages;
-		if (legacyPreservePdfLink !== undefined) await this.saveSettings();
+		if (legacyPreservePdfLink !== undefined || repaired) await this.saveSettings();
 	}
 
 	async saveSettings() {
@@ -753,9 +756,9 @@ export default class PdfPrinterPlugin extends Plugin {
 			await document.destroy();
 			return null;
 		}
-		if (selectedPages?.some((page) => page > pages)) {
+		if (selectedPages && !hasValidPdfPageNumbers(selectedPages, pages)) {
 			await document.destroy();
-			new Notice(`Document '${file.name}' does not contain that page.`);
+			new Notice(`Enter pages between 1 and ${pages}.`);
 			return null;
 		}
 		new Notice(`Printing document '${file.name}'...`);
