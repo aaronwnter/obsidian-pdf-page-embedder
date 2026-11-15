@@ -36,12 +36,7 @@ export class BrowserCanvasFactory {
 	}
 
 	destroy(canvasAndContext: CanvasWithContext) {
-		if (!canvasAndContext.canvas) {
-			throw new Error("Canvas is not specified");
-		}
-		if (!canvasAndContext.context) {
-			throw new Error("Context is not specified");
-		}
+		if (!canvasAndContext.canvas) return;
 		canvasAndContext.canvas.width = 0;
 		canvasAndContext.canvas.height = 0;
 		canvasAndContext.canvas = null;
