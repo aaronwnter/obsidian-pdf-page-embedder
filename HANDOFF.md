@@ -33,6 +33,8 @@ After a build, reload or disable/enable **PDF Page Embedder** in the test vault.
 - A local provenance index in ignored `data.json`, mapping cursor-generated WebPs to source PDF path, page number, and optional label.
 - Recursive source-index rebuild for generated WebPs in every supported output layout.
 - Source lifecycle handling: link-aware image moves on PDF rename, modification-time stale detection, explicit refresh, and configured-root empty-folder cleanup.
+- The provenance index retains records for missing WebPs while their source PDF exists. Rebuild reports them, and refresh recreates them at their recorded paths.
+- Existing source folders retain their output layout. The longer source ID applies to new layouts only. A later Settings migration will consolidate folders on explicit confirmation.
 - PDF renames are tracked while the plugin is enabled. A rename made while it is disabled cannot be safely matched from the stored paths alone.
 - The old `preservePdfLink` setting is migrated away automatically on plugin load.
 
@@ -45,14 +47,21 @@ Useful commands in the test vault:
 
 Use **Remove empty folders** under the Generated-image folder maintenance setting for cleanup. The legacy selection and PDF-preview conversion code is not registered and must not be manually tested.
 
+## Deferred layout migration
+
+Keep rebuild and refresh focused on repair. They must preserve each recorded image path and never reorganize output folders automatically.
+
+Add a later Settings action, **Migrate generated images to current layout**. It must preview moves, conflicts, missing images, and folders that would become empty. On confirmation, use Obsidian's file rename mechanism so note embeds update with each moved WebP. Missing images must be refreshed before migration. Never run this migration automatically.
+
 ## Test fixtures
 
 The test vault contains `Example PDF.pdf`, `Landscape.pdf`, `Portrait.pdf`, and `Nested/Portrait.pdf`. The duplicate `Portrait.pdf` names are intentional.
 
 ## Next task
 
-Replace the selection-based conversion pipeline with a provenance-aware service
-that resolves a plain PDF embed under the cursor. See [[ROADMAP.md]].
+Resolve note links through Obsidian before using them as vault paths. Start with generated-WebP embeds in `utils/generatedPageEmbed.ts` and the refresh and source-link commands in `main.ts`: they currently use the raw wiki-link target as an index key and vault path.
 
-Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes are intentionally deferred; see [[ROADMAP.md]].
+Use the active note as the resolution source. Cover vault-relative, bare-filename, and `../` embeds with tests before changing the commands. Then apply the same resolution rule to plain PDF embeds and duplicate source-link detection.
+
+Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes remain deferred; see [[ROADMAP.md]].
 
