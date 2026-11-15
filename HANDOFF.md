@@ -32,6 +32,8 @@ After a build, reload or disable/enable **PDF Page Embedder** in the test vault.
 - Source-link placement: none, above, or below.
 - A local provenance index in ignored `data.json`, mapping cursor-generated WebPs to source PDF path, page number, and optional label.
 - Recursive source-index rebuild for generated WebPs in every supported output layout.
+- Source lifecycle handling: link-aware image moves on PDF rename, modification-time stale detection, explicit refresh, and configured-root empty-folder cleanup.
+- PDF renames are tracked while the plugin is enabled. A rename made while it is disabled cannot be safely matched from the stored paths alone.
 - The old `preservePdfLink` setting is migrated away automatically on plugin load.
 
 Useful commands in the test vault:
@@ -41,6 +43,9 @@ Useful commands in the test vault:
 - `Convert PDF page embed at cursor`
 - `Add source link for generated image at cursor`
 - `Rebuild generated-image source index`
+- `Refresh generated PDF page at cursor`
+- `Refresh generated pages for active PDF`
+- `Remove empty generated-image folders`
 
 ## Test fixtures
 
@@ -48,8 +53,8 @@ The test vault contains `Example PDF.pdf`, `Landscape.pdf`, `Portrait.pdf`, and 
 
 ## Next task
 
-Implement **Add source links for generated images in the current note**. It should
-preview the intended changes before editing the note.
+Replace the selection-based conversion pipeline with a provenance-aware service
+that resolves a plain PDF embed under the cursor. See [[ROADMAP.md]].
 
 Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes are intentionally deferred; see [[ROADMAP.md]].
 

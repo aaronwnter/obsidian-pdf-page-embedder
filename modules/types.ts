@@ -9,6 +9,7 @@ export type GeneratedPageProvenance = {
 	pdfPath: string;
 	pageNumber: number;
 	label: string | null;
+	sourceMtime?: number;
 };
 
 export type GeneratedPageIndex = Record<string, GeneratedPageProvenance>;

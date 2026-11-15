@@ -1,10 +1,16 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
+import { findEmptyGeneratedFolderPaths, FolderTree } from "utils/emptyGeneratedFolders";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
 import { findGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
 import {
+	findGeneratedPagePath,
+	getGeneratedPageOutputStrategy,
+	inferGeneratedPageOutputStrategy,
+	isGeneratedPageStale,
 	rebuildGeneratedPageProvenance,
 	recordGeneratedPageProvenance,
+	updateGeneratedPageProvenanceForRename,
 } from "utils/generatedPageProvenance";
 import {
 	formatPdfPageSourceLink,
@@ -12,7 +18,16 @@ import {
 } from "utils/pdfPageSourceLink";
 import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
-import { Editor, normalizePath, Notice, Plugin, TFile, TFolder, loadPdfJs } from "obsidian";
+import {
+	Editor,
+	normalizePath,
+	Notice,
+	Plugin,
+	TAbstractFile,
+	TFile,
+	TFolder,
+	loadPdfJs,
+} from "obsidian";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_SETTINGS, PdfPrinterSettingsTab } from "modules/settings";
 import { registerPdfPreview } from "modules/pdfPreview";
@@ -38,6 +53,16 @@ export default class PdfPrinterPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+			void this.updateGeneratedPageProvenanceForRename(file, oldPath);
+		}));
+		this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
+			if (!(file instanceof TFile) || file.extension !== "pdf") return;
+			menu.addItem((item) => item
+				.setTitle("PDF Page Embedder: Refresh generated pages")
+				.setIcon("refresh-cw")
+				.onClick(() => this.refreshGeneratedPagesForPdf(file)));
+		}));
 
 		this.addCommand({
 			id: "convert-pdf-to-images",
@@ -65,6 +90,16 @@ export default class PdfPrinterPlugin extends Plugin {
 			editorCallback: (editor: Editor) => this.convertPdfPageEmbedAtCursor(editor),
 		});
 		this.addCommand({
+			id: "refresh-generated-pdf-page-at-cursor",
+			name: "Refresh generated PDF page at cursor",
+			editorCallback: (editor: Editor) => this.refreshGeneratedPdfPageAtCursor(editor),
+		});
+		this.addCommand({
+			id: "refresh-generated-pages-for-active-pdf",
+			name: "Refresh generated pages for active PDF",
+			callback: () => this.refreshGeneratedPagesForActivePdf(),
+		});
+		this.addCommand({
 			id: "add-source-link-for-generated-image-at-cursor",
 			name: "Add source link for generated image at cursor",
 			editorCallback: (editor: Editor) => this.addSourceLinkForGeneratedImageAtCursor(editor),
@@ -73,6 +108,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			id: "rebuild-generated-image-source-index",
 			name: "Rebuild generated-image source index",
 			callback: () => this.rebuildGeneratedImageSourceIndex(),
+		});
+		this.addCommand({
+			id: "remove-empty-generated-image-folders",
+			name: "Remove empty generated-image folders",
+			callback: () => this.removeEmptyGeneratedImageFolders(true),
 		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
 		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
@@ -216,6 +256,109 @@ export default class PdfPrinterPlugin extends Plugin {
 		new Notice("Added the source PDF page link.");
 	}
 
+	private async refreshGeneratedPdfPageAtCursor(editor: Editor): Promise<void> {
+		const cursor = editor.getCursor();
+		const pageEmbed = findGeneratedPageEmbedAtCursor(
+			editor.getLine(cursor.line),
+			cursor.ch,
+		);
+		if (!pageEmbed) {
+			new Notice("Place the cursor inside a generated WebP embed.");
+			return;
+		}
+
+		const imagePath = normalizePath(pageEmbed.imagePath);
+		const provenance = this.generatedPages[imagePath];
+		const imageFile = this.app.vault.getFileByPath(imagePath);
+		const sourceFile = provenance
+			? this.app.vault.getFileByPath(provenance.pdfPath)
+			: null;
+		if (!provenance || !imageFile || imageFile.extension !== "webp") {
+			new Notice("No generated PDF page is recorded for this WebP image.");
+			return;
+		}
+		if (!sourceFile || sourceFile.extension !== "pdf") {
+			new Notice(`Source PDF not found: ${provenance.pdfPath}`);
+			return;
+		}
+
+		await this.refreshGeneratedPagesForPdf(sourceFile, [imageFile.path]);
+	}
+
+	private async refreshGeneratedPagesForActivePdf(): Promise<void> {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile || activeFile.extension !== "pdf") {
+			new Notice("Open a PDF file to refresh its generated pages.");
+			return;
+		}
+		await this.refreshGeneratedPagesForPdf(activeFile);
+	}
+
+	private async refreshGeneratedPagesForPdf(
+		file: TFile,
+		imagePaths?: string[],
+	): Promise<void> {
+		const migration = imagePaths
+			? { moved: 0, skipped: 0 }
+			: await this.moveGeneratedPagesForRenamedPdf(file);
+		if (migration.moved > 0) await this.saveSettings();
+		const requestedPaths = imagePaths ? new Set(imagePaths) : null;
+		const pagesToRefresh = Object.entries(this.generatedPages).filter(
+			([imagePath, provenance]) =>
+				provenance.pdfPath === file.path &&
+				(!requestedPaths || requestedPaths.has(imagePath)),
+		);
+		if (pagesToRefresh.length === 0) {
+			new Notice(`No generated pages are recorded for ${file.name}.`);
+			return;
+		}
+
+		const pageNumbers = [...new Set(
+			pagesToRefresh.map(([, provenance]) => provenance.pageNumber),
+		)].sort((left, right) => left - right);
+		const renderedPages = await this.parsePdf(file, false, pageNumbers);
+		if (!renderedPages) return;
+		const renderedByPage = new Map(
+			renderedPages.map((page) => [page.pageNumber, page]),
+		);
+
+		let refreshed = 0;
+		let skipped = 0;
+		let updatedIndex = this.generatedPages;
+		for (const [imagePath, provenance] of pagesToRefresh) {
+			const imageFile = this.app.vault.getFileByPath(imagePath);
+			const renderedPage = renderedByPage.get(provenance.pageNumber);
+			if (!imageFile || imageFile.extension !== "webp" || !renderedPage) {
+				skipped += 1;
+				continue;
+			}
+			await this.app.vault.modifyBinary(imageFile, renderedPage.buffer);
+			updatedIndex = recordGeneratedPageProvenance(
+				updatedIndex,
+				imageFile.path,
+				file.path,
+				provenance.pageNumber,
+				provenance.label,
+				file.stat.mtime,
+			);
+			refreshed += 1;
+		}
+		if (refreshed > 0) {
+			this.generatedPages = updatedIndex;
+			await this.saveSettings();
+		}
+		const movedText = migration.moved > 0
+			? ` Moved ${migration.moved} image${migration.moved === 1 ? "" : "s"}.`
+			: "";
+		const skippedCount = skipped + migration.skipped;
+		const skippedText = skippedCount > 0
+			? ` Skipped ${skippedCount} image${skippedCount === 1 ? "" : "s"}.`
+			: "";
+		new Notice(
+			`Refreshed ${refreshed} generated image${refreshed === 1 ? "" : "s"} from ${file.name}.${movedText}${skippedText}`,
+		);
+	}
+
 	private async rebuildGeneratedImageSourceIndex(): Promise<void> {
 		const files = this.app.vault.getFiles();
 		const { generatedPages, added } = rebuildGeneratedPageProvenance(
@@ -241,16 +384,43 @@ export default class PdfPrinterPlugin extends Plugin {
 		pageNumber: number,
 		label: string | null,
 	): Promise<{ outputPath: string; reused: boolean } | null> {
-		const outputPath = getPdfPageOutputPath(
+		const expectedOutputPath = getPdfPageOutputPath(
 			this.settings.imageFolder,
 			file.path,
 			pageNumber,
 			this.settings.outputPathStrategy,
 		);
+		const indexedOutputPath = findGeneratedPagePath(
+			this.generatedPages,
+			file.path,
+			pageNumber,
+		);
+		const outputPath = this.generatedPages[expectedOutputPath]
+			? expectedOutputPath
+			: indexedOutputPath ?? expectedOutputPath;
 		const existingFile = this.app.vault.getFileByPath(outputPath);
 		if (existingFile) {
 			if (existingFile.extension === "webp") {
-				await this.rememberGeneratedPage(outputPath, file.path, pageNumber, label);
+				const provenance = this.generatedPages[outputPath];
+				if (
+					provenance && isGeneratedPageStale(
+						provenance,
+						file.stat.mtime,
+						existingFile.stat.mtime,
+					)
+				) {
+					new Notice(
+						"Source PDF changed. Refresh the generated image explicitly before reusing it.",
+					);
+					return null;
+				}
+				await this.rememberGeneratedPage(
+					outputPath,
+					file.path,
+					pageNumber,
+					label,
+					file.stat.mtime,
+				);
 				return { outputPath, reused: true };
 			} else {
 				new Notice(`Output path is already occupied: ${outputPath}`);
@@ -264,7 +434,13 @@ export default class PdfPrinterPlugin extends Plugin {
 		const outputFolder = outputPath.slice(0, outputPath.lastIndexOf("/"));
 		await this.ensureFolder(outputFolder);
 		await this.app.vault.createBinary(outputPath, pages[0].buffer);
-		await this.rememberGeneratedPage(outputPath, file.path, pageNumber, label);
+		await this.rememberGeneratedPage(
+			outputPath,
+			file.path,
+			pageNumber,
+			label,
+			file.stat.mtime,
+		);
 		return { outputPath, reused: false };
 	}
 
@@ -273,6 +449,7 @@ export default class PdfPrinterPlugin extends Plugin {
 		pdfPath: string,
 		pageNumber: number,
 		label: string | null,
+		sourceMtime?: number,
 	): Promise<void> {
 		this.generatedPages = recordGeneratedPageProvenance(
 			this.generatedPages,
@@ -280,8 +457,153 @@ export default class PdfPrinterPlugin extends Plugin {
 			pdfPath,
 			pageNumber,
 			label,
+			sourceMtime,
 		);
 		await this.saveSettings();
+	}
+
+	private async updateGeneratedPageProvenanceForRename(
+		file: TAbstractFile,
+		oldPath: string,
+	): Promise<void> {
+		const previousIndex = this.generatedPages;
+		this.generatedPages = updateGeneratedPageProvenanceForRename(
+			this.generatedPages,
+			oldPath,
+			file.path,
+		);
+		let moved = 0;
+		let skipped = 0;
+		const renamedPdfs = file instanceof TFile && file.extension === "pdf"
+			? [{ file, oldPath }]
+			: file instanceof TFolder
+				? this.app.vault.getFiles()
+					.filter((candidate) =>
+						candidate.extension === "pdf" &&
+						candidate.path.startsWith(`${file.path}/`),
+					)
+					.map((candidate) => ({
+						file: candidate,
+						oldPath: `${oldPath}${candidate.path.slice(file.path.length)}`,
+					}))
+				: [];
+		for (const renamedPdf of renamedPdfs) {
+			const result = await this.moveGeneratedPagesForRenamedPdf(
+				renamedPdf.file,
+				renamedPdf.oldPath,
+			);
+			moved += result.moved;
+			skipped += result.skipped;
+		}
+		if (this.generatedPages !== previousIndex) await this.saveSettings();
+		if (moved > 0 || skipped > 0) {
+			const skippedText = skipped > 0
+				? ` Skipped ${skipped} image${skipped === 1 ? "" : "s"}.`
+				: "";
+			new Notice(
+				`Moved ${moved} generated image${moved === 1 ? "" : "s"} for ${file.name}.${skippedText}`,
+			);
+		}
+	}
+
+	private async moveGeneratedPagesForRenamedPdf(
+		file: TFile,
+		oldPdfPath?: string,
+	): Promise<{ moved: number; skipped: number }> {
+		let moved = 0;
+		let skipped = 0;
+		const imageFolder = normalizePath(this.settings.imageFolder);
+		const generatedPages = Object.entries(this.generatedPages).filter(
+			([, provenance]) => provenance.pdfPath === file.path,
+		);
+		for (const [imagePath, provenance] of generatedPages) {
+			const strategy = oldPdfPath
+				? getGeneratedPageOutputStrategy(
+					imagePath,
+					imageFolder,
+					oldPdfPath,
+					provenance.pageNumber,
+				) ?? inferGeneratedPageOutputStrategy(imagePath, imageFolder)
+				: inferGeneratedPageOutputStrategy(imagePath, imageFolder);
+			if (!strategy) continue;
+			const newImagePath = getPdfPageOutputPath(
+				imageFolder,
+				file.path,
+				provenance.pageNumber,
+				strategy,
+			);
+			if (newImagePath === imagePath) continue;
+			const imageFile = this.app.vault.getFileByPath(imagePath);
+			if (!imageFile || imageFile.extension !== "webp") {
+				skipped += 1;
+				continue;
+			}
+			if (
+				this.app.vault.getAbstractFileByPath(newImagePath) ||
+				this.generatedPages[newImagePath]
+			) {
+				skipped += 1;
+				continue;
+			}
+			try {
+				await this.ensureFolder(newImagePath.slice(0, newImagePath.lastIndexOf("/")));
+				await this.app.fileManager.renameFile(imageFile, newImagePath);
+				this.generatedPages = updateGeneratedPageProvenanceForRename(
+					this.generatedPages,
+					imagePath,
+					newImagePath,
+				);
+				moved += 1;
+			} catch (error) {
+				console.error("pdf-page-embedder: could not move generated image", error);
+				skipped += 1;
+			}
+		}
+		if (moved > 0) await this.removeEmptyGeneratedImageFolders(false);
+		return { moved, skipped };
+	}
+
+	private async removeEmptyGeneratedImageFolders(
+		showNotice: boolean,
+	): Promise<void> {
+		const rootPath = normalizePath(this.settings.imageFolder);
+		const rootFolder = this.app.vault.getAbstractFileByPath(rootPath);
+		if (!(rootFolder instanceof TFolder)) {
+			if (showNotice) new Notice(`Generated-image folder not found: ${rootPath}`);
+			return;
+		}
+
+		const toFolderTree = (folder: TFolder): FolderTree => ({
+			path: folder.path,
+			children: folder.children.map((child) =>
+				child instanceof TFolder ? toFolderTree(child) : { path: child.path },
+			),
+		});
+		let removed = 0;
+		let skipped = 0;
+		for (const path of findEmptyGeneratedFolderPaths(toFolderTree(rootFolder))) {
+			const folder = this.app.vault.getAbstractFileByPath(path);
+			if (!(folder instanceof TFolder) || folder.children.length > 0) continue;
+			try {
+				await this.app.vault.delete(folder, true);
+				removed += 1;
+			} catch (error) {
+				console.error("pdf-page-embedder: could not remove empty folder", error);
+				skipped += 1;
+			}
+		}
+		if (showNotice) {
+			const skippedText = skipped > 0
+				? ` Skipped ${skipped} folder${skipped === 1 ? "" : "s"}.`
+				: "";
+			new Notice(
+				removed === 0
+					? skipped === 0
+						? "No empty generated-image folders were found."
+						: `Could not remove empty generated-image folders.${skippedText}`
+					: `Removed ${removed} empty generated-image folder${removed === 1 ? "" : "s"}.${skippedText}`,
+			);
+		}
 	}
 
 	private resolvePdfPageEmbedAtCursor(

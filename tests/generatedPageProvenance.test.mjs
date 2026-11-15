@@ -5,7 +5,15 @@ import { build } from "esbuild";
 const { outputFiles } = await build({
 	entryPoints: ["utils/generatedPageProvenance.ts"], bundle: true, write: false, format: "esm",
 });
-const { recordGeneratedPageProvenance, rebuildGeneratedPageProvenance } = await import(
+const {
+	findGeneratedPagePath,
+	getGeneratedPageOutputStrategy,
+	inferGeneratedPageOutputStrategy,
+	isGeneratedPageStale,
+	rebuildGeneratedPageProvenance,
+	recordGeneratedPageProvenance,
+	updateGeneratedPageProvenanceForRename,
+} = await import(
 	`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -37,6 +45,102 @@ test("retains an existing label when a reused image has no new label", () => {
 			index, "Attachments/Portrait-003.webp", "PDFs/Portrait.pdf", 3, null,
 		)["Attachments/Portrait-003.webp"].label,
 		"Lecture 3",
+	);
+});
+
+test("records the source modification time when rendering a page", () => {
+	assert.equal(
+		recordGeneratedPageProvenance(
+			{}, "page.webp", "PDFs/Portrait.pdf", 3, null, 1_700_000_000,
+		)["page.webp"].sourceMtime,
+		1_700_000_000,
+	);
+});
+
+test("updates provenance paths when a source folder or generated image moves", () => {
+	const index = {
+		"Generated/Old/Portrait-001.webp": {
+			pdfPath: "PDFs/Old/Portrait.pdf",
+			pageNumber: 1,
+			label: null,
+			sourceMtime: 10,
+		},
+	};
+	const sourceRenamed = updateGeneratedPageProvenanceForRename(
+		index, "PDFs/Old", "PDFs/New",
+	);
+	assert.equal(
+		sourceRenamed["Generated/Old/Portrait-001.webp"].pdfPath,
+		"PDFs/New/Portrait.pdf",
+	);
+	const imageRenamed = updateGeneratedPageProvenanceForRename(
+		sourceRenamed, "Generated/Old", "Generated/New",
+	);
+	assert.equal(
+		imageRenamed["Generated/New/Portrait-001.webp"].pdfPath,
+		"PDFs/New/Portrait.pdf",
+	);
+});
+
+test("finds recorded pages and detects changed sources without re-rendering", () => {
+	const index = {
+		"Generated/Portrait-001.webp": {
+			pdfPath: "PDFs/Portrait.pdf",
+			pageNumber: 1,
+			label: null,
+			sourceMtime: 10,
+		},
+	};
+	const provenance = index["Generated/Portrait-001.webp"];
+	assert.equal(findGeneratedPagePath(index, "PDFs/Portrait.pdf", 1), "Generated/Portrait-001.webp");
+	assert.equal(isGeneratedPageStale(provenance, 10, 20), false);
+	assert.equal(isGeneratedPageStale(provenance, 11, 20), true);
+	assert.equal(isGeneratedPageStale({ ...provenance, sourceMtime: undefined }, 21, 20), true);
+	assert.equal(isGeneratedPageStale({ ...provenance, sourceMtime: undefined }, 20, 21), false);
+});
+
+test("identifies a generated image layout so renames can preserve it", () => {
+	assert.equal(
+		getGeneratedPageOutputStrategy(
+			"Attachments/Portrait--53e3e6a8/Portrait-002.webp",
+			"Attachments",
+			"PDFs/Portrait.pdf",
+			2,
+		),
+		"shallow-source-id",
+	);
+	assert.equal(
+		getGeneratedPageOutputStrategy(
+			"Attachments/unrelated.webp",
+			"Attachments",
+			"PDFs/Portrait.pdf",
+			2,
+		),
+		null,
+	);
+});
+
+test("infers a historical layout after its source PDF has already moved", () => {
+	assert.equal(
+		inferGeneratedPageOutputStrategy(
+			"Attachments/PDFs--Nested--Portrait--79248a2e/Portrait-005.webp",
+			"Attachments",
+		),
+		"detailed-shallow-source-id",
+	);
+	assert.equal(
+		inferGeneratedPageOutputStrategy(
+			"Attachments/Portrait--79248a2e/Portrait-005.webp",
+			"Attachments",
+		),
+		"shallow-source-id",
+	);
+	assert.equal(
+		inferGeneratedPageOutputStrategy(
+			"Attachments/PDFs/Nested/Portrait/Portrait-005.webp",
+			"Attachments",
+		),
+		"mirror-source-path",
 	);
 });
 
