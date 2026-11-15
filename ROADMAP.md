@@ -25,6 +25,12 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 
 An **Insert generated PDF page image** command is intentionally out of scope. Obsidian already makes it easy to embed an image directly, so this would add no meaningful UI benefit.
 
+## Current workflow
+
+Use `Convert PDF page embed at cursor` for page-specific PDF embeds. It is the only supported conversion workflow while cursor-first range and full-document conversion are being built.
+
+The old selection commands and PDF-preview menu items remain in the code only as a temporary migration bridge. Do not use or manually test them. They will be removed after `Convert PDF pages` and `Convert and insert PDF pages` replace their useful behaviour.
+
 ## Next: ordered work
 
 1. Restore the quality gate and define test seams before changing behaviour.
@@ -47,8 +53,10 @@ An **Insert generated PDF page image** command is intentionally out of scope. Ob
 
 4. Make generated-page provenance authoritative and self-healing.
    - Record provenance only after the WebP exists at the recorded path.
-   - Remove index records whose image or source PDF no longer exists. Rebuilding the index must prune these records as well as discover missing ones.
-   - When a generated file was deleted, render to the current deterministic path rather than reviving an old historical path from the index.
+   - Remove records only when their source PDF no longer exists. Keep records for missing WebPs so the plugin can repair broken image embeds.
+   - Rebuild must discover missing records, report missing generated files, and preserve their recovery information.
+   - Refreshing a generated image or its active source PDF must recreate a missing WebP at its recorded path. Refresh must not relocate files unless the source PDF was renamed.
+   - When generating a new page for a PDF that already has images, keep using that PDF's existing output folder. If every image is gone, create the new page in the current deterministic layout.
    - Reuse a WebP only when its provenance identifies the same source PDF and page. Report an occupied or conflicting path without overwriting its provenance.
    - Preserve existing labels during safe reuse, retain explicit stale-image behaviour, and cover stale, missing, duplicate, and conflicting records with tests.
    - Replace the 32-bit source-path ID with a collision-resistant identifier, or detect and resolve a collision before writing. The current short hash is not a no-collision guarantee.
@@ -79,8 +87,8 @@ An **Insert generated PDF page image** command is intentionally out of scope. Ob
    - Do not add an image-insertion command. Standard Obsidian embedding already covers that job.
 
 9. Remove superseded commands and the UUID pipeline.
-   - Remove the development-only render and inspect commands once the user-facing commands cover their useful behaviour.
-   - Remove selection-based conversion, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
+   - Remove the development-only render and inspect commands once the user-facing cursor commands cover their useful behaviour.
+   - Remove the deprecated selection commands, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
    - Confirm that no remaining command can create unindexed, non-deterministic generated images.
 
 10. Add source links for generated images in the current note, with a preview of intended changes.
