@@ -7,6 +7,7 @@ const { outputFiles } = await build({
 });
 const {
 	findGeneratedPagePath,
+	findGeneratedPageOutputPathForExistingLayout,
 	getGeneratedPageOutputStrategy,
 	inferGeneratedPageOutputStrategy,
 	isGeneratedPageStale,
@@ -45,6 +46,22 @@ test("retains an existing label when a reused image has no new label", () => {
 			index, "Attachments/Portrait-003.webp", "PDFs/Portrait.pdf", 3, null,
 		)["Attachments/Portrait-003.webp"].label,
 		"Lecture 3",
+	);
+});
+
+test("does not overwrite provenance owned by another PDF page", () => {
+	const index = recordGeneratedPageProvenance(
+		{}, "Attachments/Portrait-003.webp", "PDFs/Portrait.pdf", 3, null,
+	);
+	assert.equal(
+		recordGeneratedPageProvenance(
+			index,
+			"Attachments/Portrait-003.webp",
+			"PDFs/Another.pdf",
+			3,
+			null,
+		),
+		index,
 	);
 });
 
@@ -168,6 +185,7 @@ test("rebuilds missing provenance from every generated-image layout", () => {
 	);
 
 	assert.equal(result.added, 2);
+	assert.equal(result.removed, 0);
 	assert.deepEqual(result.generatedPages, {
 		[existingPath]: {
 			pdfPath: portraitPdf,
@@ -185,4 +203,62 @@ test("rebuilds missing provenance from every generated-image layout", () => {
 			label: null,
 		},
 	});
+});
+
+test("prunes provenance records for missing images and source PDFs", () => {
+	const result = rebuildGeneratedPageProvenance(
+		{
+			"Attachments/available.webp": {
+				pdfPath: "PDFs/Available.pdf", pageNumber: 1, label: null,
+			},
+			"Attachments/missing-image.webp": {
+				pdfPath: "PDFs/Available.pdf", pageNumber: 2, label: null,
+			},
+			"Attachments/missing-source.webp": {
+				pdfPath: "PDFs/Missing.pdf", pageNumber: 1, label: null,
+			},
+		},
+		["Attachments/available.webp", "Attachments/missing-source.webp"],
+		["PDFs/Available.pdf"],
+		"Attachments",
+	);
+
+	assert.equal(result.removed, 1);
+	assert.equal(result.missingImages, 1);
+	assert.deepEqual(result.generatedPages, {
+		"Attachments/available.webp": {
+			pdfPath: "PDFs/Available.pdf", pageNumber: 1, label: null,
+		},
+		"Attachments/missing-image.webp": {
+			pdfPath: "PDFs/Available.pdf", pageNumber: 2, label: null,
+		},
+	});
+});
+
+test("uses an existing image layout for new pages but ignores missing images", () => {
+	const index = {
+		"Attachments/Landscape--0212b84c/Landscape-003.webp": {
+			pdfPath: "PDFs/Landscape.pdf", pageNumber: 3, label: null,
+		},
+	};
+	assert.equal(
+		findGeneratedPageOutputPathForExistingLayout(
+			index,
+			new Set(["Attachments/Landscape--0212b84c/Landscape-003.webp"]),
+			"Attachments",
+			"PDFs/Landscape.pdf",
+			7,
+		),
+		"Attachments/Landscape--0212b84c/Landscape-007.webp",
+	);
+	assert.equal(
+		findGeneratedPageOutputPathForExistingLayout(
+			index,
+			new Set(),
+			"Attachments",
+			"PDFs/Landscape.pdf",
+			7,
+		),
+		null,
+	);
 });

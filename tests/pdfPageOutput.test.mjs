@@ -5,7 +5,7 @@ import { build } from "esbuild";
 const { outputFiles } = await build({
 	entryPoints: ["utils/pdfPageOutput.ts"], bundle: true, write: false, format: "esm",
 });
-const { getPdfPageOutputPath } = await import(
+const { getPdfPageOutputPath, getPdfPageOutputPathForExistingLayout } = await import(
 	`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -37,7 +37,7 @@ test("creates a stable shallow folder per PDF", () => {
 
 	assert.match(
 		nestedPortrait,
-		/^PDF Page Images\/Portrait--[0-9a-f]{8}\/Portrait-003\.webp$/,
+		/^PDF Page Images\/Portrait--[0-9a-f]{14}\/Portrait-003\.webp$/,
 	);
 	assert.notEqual(nestedPortrait, topLevelPortrait);
 	assert.equal(
@@ -61,18 +61,32 @@ test("can keep the full source path readable without nesting folders", () => {
 
 	assert.match(
 		outputPath,
-		/^PDF Page Images\/PDFs--Nested--Portrait--[0-9a-f]{8}\/Portrait-003\.webp$/,
+		/^PDF Page Images\/PDFs--Nested--Portrait--[0-9a-f]{14}\/Portrait-003\.webp$/,
 	);
 });
 
 test("uses at least three digits for a page number without truncating larger pages", () => {
-	assert.equal(
+	assert.match(
 		getPdfPageOutputPath(
 			"PDF Page Images",
 			"PDFs/Landscape.pdf",
 			1002,
 			"shallow-source-id",
 		),
-		"PDF Page Images/Landscape--0212b84c/Landscape-1002.webp",
+		/^PDF Page Images\/Landscape--[0-9a-f]{14}\/Landscape-1002\.webp$/,
+	);
+});
+
+test("keeps a new page in an existing historical output folder", () => {
+	assert.equal(
+		getPdfPageOutputPathForExistingLayout(
+			"PDF Page Images/Landscape--0212b84c/Landscape-003.webp",
+			"PDF Page Images",
+			"PDFs/Landscape.pdf",
+			3,
+			7,
+			"shallow-source-id",
+		),
+		"PDF Page Images/Landscape--0212b84c/Landscape-007.webp",
 	);
 });

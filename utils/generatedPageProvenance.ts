@@ -1,5 +1,8 @@
 import type { GeneratedPageIndex, OutputPathStrategy } from "modules/types";
-import { getPdfPageOutputPath } from "utils/pdfPageOutput";
+import {
+	getPdfPageOutputPathForExistingLayout,
+	getPdfPageOutputPaths,
+} from "utils/pdfPageOutput";
 
 const OUTPUT_PATH_STRATEGIES: OutputPathStrategy[] = [
 	"shallow-source-id",
@@ -18,7 +21,8 @@ export function getGeneratedPageOutputStrategy(
 	pageNumber: number,
 ): OutputPathStrategy | null {
 	return OUTPUT_PATH_STRATEGIES.find((strategy) =>
-		getPdfPageOutputPath(imageFolder, pdfPath, pageNumber, strategy) === imagePath,
+		getPdfPageOutputPaths(imageFolder, pdfPath, pageNumber, strategy)
+			.includes(imagePath),
 	) ?? null;
 }
 
@@ -45,12 +49,20 @@ export function inferGeneratedPageOutputStrategy(
 	if (outputFolder && outputFolderName === sourceFileName) {
 		return "mirror-source-path";
 	}
-	if (/--[0-9a-f]{8}$/i.test(outputFolderName)) {
+	if (/--[0-9a-f]{8}(?:[0-9a-f]{6})?$/i.test(outputFolderName)) {
 		return outputFolderName.startsWith(`${sourceFileName}--`)
 			? "shallow-source-id"
 			: "detailed-shallow-source-id";
 	}
 	return null;
+}
+
+export function hasGeneratedPageProvenance(
+	provenance: GeneratedPageIndex[string] | undefined,
+	pdfPath: string,
+	pageNumber: number,
+): boolean {
+	return provenance?.pdfPath === pdfPath && provenance.pageNumber === pageNumber;
 }
 
 /**
@@ -66,6 +78,9 @@ export function recordGeneratedPageProvenance(
 	sourceMtime?: number,
 ): GeneratedPageIndex {
 	const existing = index[imagePath];
+	if (existing && !hasGeneratedPageProvenance(existing, pdfPath, pageNumber)) {
+		return index;
+	}
 	const recordedSourceMtime = sourceMtime ?? existing?.sourceMtime;
 	return {
 		...index,
@@ -125,6 +140,45 @@ export function findGeneratedPagePath(
 	}) ?? null;
 }
 
+export function findGeneratedPagePaths(
+	index: GeneratedPageIndex,
+	pdfPath: string,
+	pageNumber: number,
+): string[] {
+	return Object.keys(index).sort().filter((imagePath) =>
+		hasGeneratedPageProvenance(index[imagePath], pdfPath, pageNumber),
+	);
+}
+
+/**
+ * Returns the output path for a new page in the layout already used by an
+ * existing image for the same PDF. Missing images do not choose a layout.
+ */
+export function findGeneratedPageOutputPathForExistingLayout(
+	index: GeneratedPageIndex,
+	existingImagePaths: Set<string>,
+	imageFolder: string,
+	pdfPath: string,
+	targetPageNumber: number,
+): string | null {
+	for (const imagePath of Object.keys(index).sort()) {
+		const provenance = index[imagePath];
+		if (provenance.pdfPath !== pdfPath || !existingImagePaths.has(imagePath)) continue;
+		for (const strategy of OUTPUT_PATH_STRATEGIES) {
+			const targetPath = getPdfPageOutputPathForExistingLayout(
+				imagePath,
+				imageFolder,
+				pdfPath,
+				provenance.pageNumber,
+				targetPageNumber,
+				strategy,
+			);
+			if (targetPath) return targetPath;
+		}
+	}
+	return null;
+}
+
 /**
  * Checks whether the source changed after this image was rendered. Older
  * index entries fall back to comparing the source and image modification time.
@@ -169,7 +223,12 @@ export function rebuildGeneratedPageProvenance(
 	imagePaths: string[],
 	pdfPaths: string[],
 	imageFolder: string,
-): { generatedPages: GeneratedPageIndex; added: number } {
+): {
+	generatedPages: GeneratedPageIndex;
+	added: number;
+	missingImages: number;
+	removed: number;
+} {
 	const imagesByFolder = new Map<string, string[]>();
 	for (const imagePath of imagePaths) {
 		const folder = folderPath(imagePath);
@@ -178,34 +237,49 @@ export function rebuildGeneratedPageProvenance(
 		imagesByFolder.set(folder, images);
 	}
 
-	const generatedPages = { ...existingIndex };
+	const knownImages = new Set(imagePaths);
+	const knownPdfs = new Set(pdfPaths);
+	const generatedPages: GeneratedPageIndex = {};
+	let removed = 0;
+	let missingImages = 0;
+	for (const [imagePath, provenance] of Object.entries(existingIndex)) {
+		if (knownPdfs.has(provenance.pdfPath)) {
+			generatedPages[imagePath] = provenance;
+			if (!knownImages.has(imagePath)) missingImages += 1;
+		} else {
+			removed += 1;
+		}
+	}
 	let added = 0;
 	for (const pdfPath of pdfPaths) {
 		for (const strategy of OUTPUT_PATH_STRATEGIES) {
-			const examplePath = getPdfPageOutputPath(
+			for (const examplePath of getPdfPageOutputPaths(
 				imageFolder,
 				pdfPath,
 				1,
 				strategy,
-			);
-			for (const imagePath of imagesByFolder.get(folderPath(examplePath)) ?? []) {
-				if (generatedPages[imagePath]) continue;
-				const pageNumber = imagePageNumber(imagePath, pdfPath);
-				if (pageNumber === null) continue;
-				if (
-					getPdfPageOutputPath(imageFolder, pdfPath, pageNumber, strategy) !==
-					imagePath
-				) continue;
+			)) {
+				for (const imagePath of imagesByFolder.get(folderPath(examplePath)) ?? []) {
+					if (generatedPages[imagePath]) continue;
+					const pageNumber = imagePageNumber(imagePath, pdfPath);
+					if (pageNumber === null) continue;
+					if (!getPdfPageOutputPaths(
+						imageFolder,
+						pdfPath,
+						pageNumber,
+						strategy,
+					).includes(imagePath)) continue;
 
-				generatedPages[imagePath] = {
-					pdfPath,
-					pageNumber,
-					label: null,
-				};
-				added += 1;
+					generatedPages[imagePath] = {
+						pdfPath,
+						pageNumber,
+						label: null,
+					};
+					added += 1;
+				}
 			}
 		}
 	}
 
-	return { generatedPages, added };
+	return { generatedPages, added, missingImages, removed };
 }
