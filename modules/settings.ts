@@ -141,5 +141,12 @@ export class PdfPrinterSettingsTab extends PluginSettingTab {
 					},
 				);
 			});
+
+		new Setting(this.containerEl)
+			.setName("Generated-image folder maintenance")
+			.setDesc("Remove empty folders below the configured generated-image folder.")
+			.addButton((button) => button
+				.setButtonText("Remove empty folders")
+				.onClick(() => this.plugin.removeEmptyGeneratedImageFolders()));
 	}
 }

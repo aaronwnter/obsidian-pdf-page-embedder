@@ -6,7 +6,7 @@ This is a personal development fork of [PDF Printer](https://github.com/cubexy/o
 
 ## Status
 
-Active cursor-first development. The upstream PDF Printer behaviour remains available while the page-embed workflow is implemented incrementally.
+Active cursor-first development. The supported workflow converts a page-specific PDF embed under the cursor. The old selection and PDF-preview conversion code is disabled while cursor-first range and full-document conversion are built.
 
 The current implementation and cursor-first next steps are tracked in [ROADMAP.md](ROADMAP.md). Session-specific project state and working rules are in [HANDOFF.md](HANDOFF.md).
 
@@ -67,10 +67,9 @@ PDF embeds use documented fragment parameters such as `#page=3&height=400`; the 
 
 The link to the source PDF page will support `none`, `above`, and `below` placement. `below` is the intended default for the cursor page command.
 
-### Keep the useful upstream workflows
+### Current limits
 
-- The existing selection-and-page-range commands remain available for occasional multi-page conversion.
-- The native PDF-preview menu remains available.
+- Cursor-first range and full-document conversion are not available yet.
 - WebP quality, output-folder, image-embed formatting, and spacing settings remain configurable.
 
 Vault-wide or whole-note conversion is deliberately not part of the first scope: this fork is designed around converting and reusing specific pages while studying.

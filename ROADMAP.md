@@ -29,7 +29,7 @@ An **Insert generated PDF page image** command is intentionally out of scope. Ob
 
 Use `Convert PDF page embed at cursor` for page-specific PDF embeds. It is the only supported conversion workflow while cursor-first range and full-document conversion are being built.
 
-The old selection commands and PDF-preview menu items remain in the code only as a temporary migration bridge. Do not use or manually test them. They will be removed after `Convert PDF pages` and `Convert and insert PDF pages` replace their useful behaviour.
+The old selection and PDF-preview conversion code remains unregistered as a temporary migration bridge. Do not use or manually test it. It will be removed after `Convert PDF pages` and `Convert and insert PDF pages` replace its useful behaviour.
 
 ## Next: ordered work
 

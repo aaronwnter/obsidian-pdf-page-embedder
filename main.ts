@@ -25,6 +25,7 @@ import { renderPdfPages } from "utils/pdfPageRenderer";
 import { repairPdfPrinterSettings } from "utils/settingsValidation";
 import {
 	Editor,
+	MarkdownView,
 	normalizePath,
 	Notice,
 	Plugin,
@@ -35,7 +36,6 @@ import {
 } from "obsidian";
 import { v4 as uuidv4 } from "uuid";
 import { DEFAULT_SETTINGS, PdfPrinterSettingsTab } from "modules/settings";
-import { registerPdfPreview } from "modules/pdfPreview";
 import { promptForPageRange } from "modules/pageRangeModal";
 import {
 	GeneratedPageIndex,
@@ -70,39 +70,18 @@ export default class PdfPrinterPlugin extends Plugin {
 		}));
 
 		this.addCommand({
-			id: "convert-pdf-to-images",
-			name: "Convert PDF to images",
-			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.printSelection(editor)),
-		});
-		this.addCommand({
-			id: "convert-pdf-page-ranges-to-images",
-			name: "Convert PDF page ranges to images",
-			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.printSelection(editor, true)),
-		});
-		this.addCommand({
-			id: "inspect-pdf-page-embed-at-cursor",
-			name: "Inspect PDF page embed at cursor (development)",
-			editorCallback: (editor: Editor) => this.inspectPdfPageEmbedAtCursor(editor),
-		});
-		this.addCommand({
-			id: "render-pdf-page-embed-at-cursor",
-			name: "Render PDF page embed at cursor (development)",
-			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.renderPdfPageEmbedAtCursor(editor)),
-		});
-		this.addCommand({
 			id: "convert-pdf-page-embed-at-cursor",
 			name: "Convert PDF page embed at cursor",
 			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.convertPdfPageEmbedAtCursor(editor)),
 		});
 		this.addCommand({
-			id: "refresh-generated-pdf-page-at-cursor",
-			name: "Refresh generated PDF page at cursor",
-			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.refreshGeneratedPdfPageAtCursor(editor)),
-		});
-		this.addCommand({
-			id: "refresh-generated-pages-for-active-pdf",
-			name: "Refresh generated pages for active PDF",
-			callback: () => this.runPdfCommand(() => this.refreshGeneratedPagesForActivePdf()),
+			id: "refresh-generated-pdf-images",
+			name: "Refresh generated PDF image(s)",
+			checkCallback: (checking) => {
+				if (!this.canRefreshGeneratedPdfImages()) return false;
+				if (!checking) this.runPdfCommand(() => this.refreshGeneratedPdfImages());
+				return true;
+			},
 		});
 		this.addCommand({
 			id: "add-source-link-for-generated-image-at-cursor",
@@ -111,16 +90,10 @@ export default class PdfPrinterPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: "rebuild-generated-image-source-index",
-			name: "Rebuild generated-image source index",
+			name: "Repair generated-image index",
 			callback: () => this.runPdfCommand(() => this.rebuildGeneratedImageSourceIndex()),
 		});
-		this.addCommand({
-			id: "remove-empty-generated-image-folders",
-			name: "Remove empty generated-image folders",
-			callback: () => this.runPdfCommand(() => this.removeEmptyGeneratedImageFolders(true)),
-		});
 		this.addSettingTab(new PdfPrinterSettingsTab(this.app, this));
-		registerPdfPreview(this, (file, promptForRange) => this.printPdf(file, promptForRange));
 	}
 
 	private runPdfCommand(command: () => Promise<void>): void {
@@ -298,6 +271,28 @@ export default class PdfPrinterPlugin extends Plugin {
 		}
 
 		await this.refreshGeneratedPagesForPdf(sourceFile, [imagePath]);
+	}
+
+	private canRefreshGeneratedPdfImages(): boolean {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile?.extension === "pdf") return true;
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView?.file) return false;
+		const cursor = activeView.editor.getCursor();
+		return findGeneratedPageEmbedAtCursor(
+			activeView.editor.getLine(cursor.line),
+			cursor.ch,
+		) !== null;
+	}
+
+	private async refreshGeneratedPdfImages(): Promise<void> {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile?.extension === "pdf") {
+			await this.refreshGeneratedPagesForPdf(activeFile);
+			return;
+		}
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView?.file) await this.refreshGeneratedPdfPageAtCursor(activeView.editor);
 	}
 
 	private async refreshGeneratedPagesForActivePdf(): Promise<void> {
@@ -631,11 +626,15 @@ export default class PdfPrinterPlugin extends Plugin {
 				skipped += 1;
 			}
 		}
-		if (moved > 0) await this.removeEmptyGeneratedImageFolders(false);
+		if (moved > 0) await this.removeEmptyGeneratedImageFoldersInternal(false);
 		return { moved, skipped };
 	}
 
-	private async removeEmptyGeneratedImageFolders(
+	async removeEmptyGeneratedImageFolders(): Promise<void> {
+		await this.removeEmptyGeneratedImageFoldersInternal(true);
+	}
+
+	private async removeEmptyGeneratedImageFoldersInternal(
 		showNotice: boolean,
 	): Promise<void> {
 		const rootPath = normalizePath(this.settings.imageFolder);

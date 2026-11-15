@@ -38,14 +38,12 @@ After a build, reload or disable/enable **PDF Page Embedder** in the test vault.
 
 Useful commands in the test vault:
 
-- `Inspect PDF page embed at cursor (development)`
-- `Render PDF page embed at cursor (development)`
 - `Convert PDF page embed at cursor`
+- `Refresh generated PDF image(s)`, from a generated WebP under the cursor or an active PDF
 - `Add source link for generated image at cursor`
-- `Rebuild generated-image source index`
-- `Refresh generated PDF page at cursor`
-- `Refresh generated pages for active PDF`
-- `Remove empty generated-image folders`
+- `Repair generated-image index`
+
+Use **Remove empty folders** under the Generated-image folder maintenance setting for cleanup. The legacy selection and PDF-preview conversion code is not registered and must not be manually tested.
 
 ## Test fixtures
 
