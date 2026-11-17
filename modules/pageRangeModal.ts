@@ -1,13 +1,13 @@
 import { App, Modal, Notice, Setting } from "obsidian";
-import { parsePageRange } from "utils/pageRange";
+import { parsePdfPageSelection, PdfPageSelection } from "utils/pageRange";
 
 class PageRangeModal extends Modal {
-	private pages: number[] | null = null;
+	private selection: PdfPageSelection | null = null;
 
 	constructor(
 		app: App,
 		private pageCount: number,
-		private resolve: (pages: number[] | null) => void,
+		private resolve: (selection: PdfPageSelection | null) => void,
 	) {
 		super(app);
 	}
@@ -17,7 +17,7 @@ class PageRangeModal extends Modal {
 		let value = "";
 		const submit = () => {
 			try {
-				this.pages = parsePageRange(value, this.pageCount);
+				this.selection = parsePdfPageSelection(value, this.pageCount);
 			} catch {
 				new Notice(`Enter pages between 1 and ${this.pageCount}, for example: 2-5, 7.`);
 				return;
@@ -27,7 +27,7 @@ class PageRangeModal extends Modal {
 		new Setting(this.contentEl)
 			.setName(`Pages (1–${this.pageCount})`)
 			.addText((text) => {
-				text.setPlaceholder("2-5, 7").onChange((input) => { value = input; });
+			text.setPlaceholder("2-5, 7, or full").onChange((input) => { value = input; });
 				text.inputEl.setAttribute("aria-label", "Page ranges");
 				text.inputEl.focus();
 			});
@@ -38,10 +38,10 @@ class PageRangeModal extends Modal {
 	}
 
 	onClose(): void {
-		this.resolve(this.pages);
+		this.resolve(this.selection);
 	}
 }
 
-export function promptForPageRange(app: App, pageCount: number): Promise<number[] | null> {
+export function promptForPageRange(app: App, pageCount: number): Promise<PdfPageSelection | null> {
 	return new Promise((resolve) => new PageRangeModal(app, pageCount, resolve).open());
 }

@@ -32,6 +32,7 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 - Serialize vault rename handling so consecutive source and generated-image moves run in order. Only output paths that match validated provenance move, while conflicts retain their original records.
 - Provide a confirmed Settings migration to the selected generated-image layout. It previews moves, conflicts, missing images, and empty folders. Refresh and index repair do not migrate layouts.
 - Use a deterministic provenance-aware batch service for PDF-page rendering. It reports rendered, reused, stale, skipped, and failed pages, while the legacy selection pipeline remains unregistered until removal.
+- Convert or insert pages from a plain PDF embed at the cursor. Range input supports empty and `full` for a full document, and insertions occur only after every selected page succeeds.
 
 An **Insert generated PDF page image** command is intentionally out of scope. Obsidian already makes it easy to embed an image directly, so this would add no meaningful UI benefit.
 
@@ -43,33 +44,25 @@ The old selection and PDF-preview conversion code remains unregistered as a temp
 
 ## Next: ordered work
 
-1. Add two cursor commands for a plain PDF embed: `Convert PDF pages` and `Convert and insert PDF pages`.
-   - Both commands use the same range prompt. Empty or whitespace-only input, and `full` in any letter case, select the full document.
-   - Accept inclusive expressions such as `2-5` and `2, 5, 7-9`, preserving document order without duplicates.
-   - `Convert PDF pages` creates or reuses images and records provenance without changing the note.
-   - `Convert and insert PDF pages` replaces only the original plain PDF embed after every requested page has completed successfully. It follows the image-spacing setting.
-   - A full-document insert places one source-PDF link above the image group, ignoring `sourceLinkPlacement`. A range insert places a page-specific link beside each image according to that setting.
-   - Do not add an image-insertion command. Standard Obsidian embedding already covers that job.
-
-2. Remove superseded commands and the UUID pipeline.
+1. Remove superseded commands and the UUID pipeline.
    - Remove the development-only render and inspect commands once the user-facing cursor commands cover their useful behaviour.
    - Remove the deprecated selection commands, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
    - Confirm that no remaining command can create unindexed, non-deterministic generated images.
 
-3. Add source links for generated images in the current note, with a preview of intended changes.
+2. Add source links for generated images in the current note, with a preview of intended changes.
     - Resolve each generated image link before reading provenance.
     - Add only missing links and recognise an existing equivalent link even when it uses a relative path, custom label, or viewer parameters.
     - Show the proposed edits and require confirmation before changing the note.
 
-4. Convert all plain PDF embeds in the current note.
+3. Convert all plain PDF embeds in the current note.
     - Scan only plain PDF embeds, leave page-specific embeds alone, and present a preview with page counts, output paths, stale records, and conflicts.
     - Apply conversions as a deliberate confirmed operation. Avoid rewriting a note after a partial rendering failure.
 
-5. Convert all plain PDF embeds across the vault.
+4. Convert all plain PDF embeds across the vault.
     - Start with a dry run that reports affected notes, generated files, reused files, conflicts, and skipped embeds.
     - Require explicit confirmation, process notes predictably, and retain enough result detail to review or retry failures.
 
-6. Review remaining code and tests after the old pipeline is gone.
+5. Review remaining code and tests after the old pipeline is gone.
     - Remove dead types, comments, dependencies, and duplicate formatting paths.
     - Add regression coverage for every cleanup defect fixed above.
     - Measure before changing rendering performance or adding output-layout options.

@@ -53,7 +53,7 @@ The test vault contains `PDFs/Landscape.pdf`, `PDFs/Portrait.pdf`, `PDFs/Nested/
 
 ## Next task
 
-Add two cursor commands for a plain PDF embed: `Convert PDF pages` and `Convert and insert PDF pages`. Both commands use the same range prompt. Empty or whitespace-only input, and `full` in any letter case, select the full document. Accept inclusive expressions such as `2-5` and `2, 5, 7-9`, preserving document order without duplicates. The first command creates or reuses images without changing the note. The second replaces only the original plain PDF embed after every requested page completes successfully. Do not add an image-insertion command.
+Remove superseded commands and the UUID pipeline. Remove the development-only render and inspect commands, deprecated selection commands, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline. Confirm that no remaining command can create unindexed, non-deterministic generated images.
 
 Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes remain deferred; see [[ROADMAP.md]].
 

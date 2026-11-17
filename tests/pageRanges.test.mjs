@@ -5,7 +5,7 @@ import { build } from "esbuild";
 const { outputFiles } = await build({
 	entryPoints: ["utils/pageRange.ts"], bundle: true, write: false, format: "esm",
 });
-const { parsePageRange } = await import(
+const { parsePageRange, parsePdfPageSelection } = await import(
 	`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -22,4 +22,17 @@ test("rejects empty, malformed and out-of-bounds ranges before expansion", () =>
 		"", " ", "abc", "2.5", "1 2", "1,,2", "1,", ",1", "-1", "2-", "1-2-3",
 		"0", "0-2", "9", "2-9", "1-999999999999", "9007199254740992",
 	]) assert.throws(() => parsePageRange(input, 8), Error, input);
+});
+
+test("treats blank input and full as a full-document selection", () => {
+	for (const input of ["", "  ", "full", "FULL", "Full"]) {
+		assert.deepEqual(parsePdfPageSelection(input, 3), {
+			pageNumbers: [1, 2, 3],
+			isFullDocument: true,
+		});
+	}
+	assert.deepEqual(parsePdfPageSelection("2-3", 3), {
+		pageNumbers: [2, 3],
+		isFullDocument: false,
+	});
 });

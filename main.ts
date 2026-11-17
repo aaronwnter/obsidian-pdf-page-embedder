@@ -1,5 +1,6 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { findEmptyGeneratedFolderPaths, FolderTree } from "utils/emptyGeneratedFolders";
+import { formatConvertedPdfPages } from "utils/formatConvertedPdfPages";
 import { GeneratedImageMigrationModal } from "modules/generatedImageMigrationModal";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
@@ -21,6 +22,7 @@ import {
 	PdfPageEmbed,
 	resolvePdfPageEmbed,
 } from "utils/pdfPageEmbed";
+import { findPlainPdfEmbedAtCursor, PlainPdfEmbed } from "utils/plainPdfEmbed";
 import {
 	PdfPageConversionResult,
 	planPdfPageConversion,
@@ -92,6 +94,20 @@ export default class PdfPrinterPlugin extends Plugin {
 			id: "convert-pdf-page-embed-at-cursor",
 			name: "Convert PDF page embed at cursor",
 			editorCallback: (editor: Editor) => this.runPdfCommand(() => this.convertPdfPageEmbedAtCursor(editor)),
+		});
+		this.addCommand({
+			id: "convert-pdf-pages-at-cursor",
+			name: "Convert PDF pages",
+			editorCallback: (editor: Editor) => this.runPdfCommand(() =>
+				this.convertPlainPdfEmbedAtCursor(editor, false),
+			),
+		});
+		this.addCommand({
+			id: "convert-and-insert-pdf-pages-at-cursor",
+			name: "Convert and insert PDF pages",
+			editorCallback: (editor: Editor) => this.runPdfCommand(() =>
+				this.convertPlainPdfEmbedAtCursor(editor, true),
+			),
 		});
 		this.addCommand({
 			id: "refresh-generated-pdf-images",
@@ -196,6 +212,69 @@ export default class PdfPrinterPlugin extends Plugin {
 				? "Reused the page image and replaced the PDF embed."
 				: "Rendered the page image and replaced the PDF embed.",
 		);
+	}
+
+	private async convertPlainPdfEmbedAtCursor(
+		editor: Editor,
+		insertIntoNote: boolean,
+	): Promise<void> {
+		const resolvedEmbed = this.resolvePlainPdfEmbedAtCursor(editor);
+		if (!resolvedEmbed) return;
+		const { file, plainEmbed } = resolvedEmbed;
+		const pageCount = await this.getPdfPageCount(file);
+		const selection = await promptForPageRange(this.app, pageCount);
+		if (!selection) return;
+
+		const results = await this.convertPdfPages(file, selection.pageNumbers, null);
+		const completed = results.every((result) =>
+			result.status === "rendered" || result.status === "reused",
+		);
+		const completedPages = results.flatMap((result) => result.outputPath &&
+			(result.status === "rendered" || result.status === "reused")
+			? [{ pageNumber: result.pageNumber, outputPath: result.outputPath }]
+			: [],
+		);
+		if (!insertIntoNote) {
+			new Notice(this.pdfPageConversionSummary(file, results));
+			return;
+		}
+		if (!completed) {
+			new Notice(
+				`${this.pdfPageConversionSummary(file, results)} The PDF embed was not replaced.`,
+			);
+			return;
+		}
+
+		const cursor = editor.getCursor();
+		const currentLine = editor.getLine(cursor.line);
+		if (currentLine.slice(plainEmbed.start, plainEmbed.end) !== plainEmbed.embedText) {
+			new Notice("The PDF embed changed before it could be replaced.");
+			return;
+		}
+		editor.replaceRange(
+			formatConvertedPdfPages(
+				file.path,
+				completedPages,
+				selection.isFullDocument,
+				this.settings,
+			),
+			{ line: cursor.line, ch: plainEmbed.start },
+			{ line: cursor.line, ch: plainEmbed.end },
+		);
+		new Notice(`${this.pdfPageConversionSummary(file, results)} Replaced the PDF embed.`);
+	}
+
+	private pdfPageConversionSummary(
+		file: TFile,
+		results: PdfPageConversionResult[],
+	): string {
+		const count = (status: PdfPageConversionResult["status"]) =>
+			results.filter((result) => result.status === status).length;
+		const fragments = ["rendered", "reused", "stale", "skipped", "failed"]
+			.map((status) => ({ status, amount: count(status as PdfPageConversionResult["status"]) }))
+			.filter(({ amount }) => amount > 0)
+			.map(({ amount, status }) => `${amount} ${status}`);
+		return `PDF pages for ${file.name}: ${fragments.join(", ") || "no pages processed"}.`;
 	}
 
 	private addSourceLinkForGeneratedImageAtCursor(editor: Editor): void {
@@ -850,6 +929,32 @@ export default class PdfPrinterPlugin extends Plugin {
 		return { file, pageEmbed };
 	}
 
+	private resolvePlainPdfEmbedAtCursor(
+		editor: Editor,
+	): { file: TFile; plainEmbed: PlainPdfEmbed } | null {
+		const cursor = editor.getCursor();
+		const plainEmbed = findPlainPdfEmbedAtCursor(
+			editor.getLine(cursor.line),
+			cursor.ch,
+		);
+		if (!plainEmbed) {
+			new Notice("Place the cursor inside a plain ![[file.pdf]] embed.");
+			return null;
+		}
+		const resolvedFile = this.app.metadataCache.getFirstLinkpathDest(
+			plainEmbed.pdfPath,
+			this.activeNotePath(),
+		);
+		const file = resolvedFile
+			? this.app.vault.getFileByPath(resolvedFile.path)
+			: null;
+		if (!file || file.extension !== "pdf") {
+			new Notice(`PDF not found: ${plainEmbed.pdfPath}`);
+			return null;
+		}
+		return { file, plainEmbed };
+	}
+
 	private resolveGeneratedPageEmbedAtCursor(editor: Editor) {
 		const cursor = editor.getCursor();
 		return resolveGeneratedPageEmbedAtCursor(
@@ -877,6 +982,17 @@ export default class PdfPrinterPlugin extends Plugin {
 			} else if (!(existingFile instanceof TFolder)) {
 				throw new Error(`Cannot create output folder at ${currentPath}.`);
 			}
+		}
+	}
+
+	private async getPdfPageCount(file: TFile): Promise<number> {
+		const pdfjs = await loadPdfJs();
+		const arrayBuffer = await this.app.vault.readBinary(file);
+		const document = await pdfjs.getDocument(new Uint8Array(arrayBuffer)).promise;
+		try {
+			return document.numPages;
+		} finally {
+			await document.destroy();
 		}
 	}
 
@@ -985,13 +1101,14 @@ export default class PdfPrinterPlugin extends Plugin {
 		const document = await pdfjs.getDocument(buffer).promise;
 
 		const pages: number = document.numPages;
-		const selectedPages = requestedPages ?? (promptForRange
+		const promptedSelection = promptForRange
 			? await promptForPageRange(this.app, pages)
-			: undefined);
-		if (selectedPages === null) {
+			: undefined;
+		if (promptedSelection === null) {
 			await document.destroy();
 			return null;
 		}
+		const selectedPages = requestedPages ?? promptedSelection?.pageNumbers;
 		if (selectedPages && !hasValidPdfPageNumbers(selectedPages, pages)) {
 			await document.destroy();
 			new Notice(`Enter pages between 1 and ${pages}.`);
