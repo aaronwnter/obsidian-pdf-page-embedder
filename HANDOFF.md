@@ -59,7 +59,7 @@ The test vault contains `PDFs/Landscape.pdf`, `PDFs/Portrait.pdf`, `PDFs/Nested/
 
 ## Next task
 
-Serialize source and generated-image rename handling. Process vault rename events through one queue so quick consecutive moves cannot race with index saves or image moves caused by the plugin itself. Move only images whose validated provenance and output strategy agree with the rename. Treat destination files or index entries as conflicts, retain the original record, and report skipped items. After a successful move, update links through Obsidian, update provenance once, and remove only empty folders below the configured generated-image root.
+Add manual migration to the current generated-image layout. Add a Settings action, `Migrate generated images to current layout`, with a preview of moves, conflicts, missing images, and folders that would become empty. Move only existing WebPs through Obsidian's file rename mechanism so note embeds update with each file. Missing images must be refreshed first. Rebuild and refresh must never migrate layouts automatically.
 
 Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes remain deferred; see [[ROADMAP.md]].
 

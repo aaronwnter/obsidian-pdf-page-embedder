@@ -65,6 +65,103 @@ export function hasGeneratedPageProvenance(
 	return provenance?.pdfPath === pdfPath && provenance.pageNumber === pageNumber;
 }
 
+export type GeneratedPageRenameMove = {
+	imagePath: string;
+	newImagePath: string;
+	pageNumber: number;
+};
+
+export type GeneratedPageRenameSkip = {
+	imagePath: string;
+	reason: "output path does not match the recorded source";
+};
+
+/**
+ * Plans moves for a PDF rename only when each image belongs to the recorded
+ * source PDF and its path matches one of that PDF's supported output layouts.
+ */
+export function planGeneratedPageMovesForPdfRename(
+	index: GeneratedPageIndex,
+	imageFolder: string,
+	oldPdfPath: string,
+	newPdfPath: string,
+): {
+	moves: GeneratedPageRenameMove[];
+	skipped: GeneratedPageRenameSkip[];
+} {
+	const moves: GeneratedPageRenameMove[] = [];
+	const skipped: GeneratedPageRenameSkip[] = [];
+	for (const [imagePath, provenance] of Object.entries(index)) {
+		if (provenance.pdfPath !== oldPdfPath) continue;
+		const strategy = getGeneratedPageOutputStrategy(
+			imagePath,
+			imageFolder,
+			oldPdfPath,
+			provenance.pageNumber,
+		);
+		if (!strategy) {
+			skipped.push({
+				imagePath,
+				reason: "output path does not match the recorded source",
+			});
+			continue;
+		}
+		const previousOutputPaths = getPdfPageOutputPaths(
+			imageFolder,
+			oldPdfPath,
+			provenance.pageNumber,
+			strategy,
+		);
+		const layoutIndex = previousOutputPaths.indexOf(imagePath);
+		const newImagePath = getPdfPageOutputPaths(
+			imageFolder,
+			newPdfPath,
+			provenance.pageNumber,
+			strategy,
+		)[layoutIndex];
+		if (!newImagePath) {
+			skipped.push({
+				imagePath,
+				reason: "output path does not match the recorded source",
+			});
+			continue;
+		}
+		moves.push({
+			imagePath,
+			newImagePath,
+			pageNumber: provenance.pageNumber,
+		});
+	}
+	return { moves, skipped };
+}
+
+/**
+ * Moves one validated record after its WebP file has moved successfully.
+ * Conflicts leave the existing index unchanged.
+ */
+export function moveGeneratedPageProvenanceForPdfRename(
+	index: GeneratedPageIndex,
+	imagePath: string,
+	newImagePath: string,
+	oldPdfPath: string,
+	newPdfPath: string,
+): GeneratedPageIndex {
+	const provenance = index[imagePath];
+	if (
+		!provenance ||
+		provenance.pdfPath !== oldPdfPath ||
+		imagePath === newImagePath ||
+		index[newImagePath]
+	) return index;
+
+	const remainingIndex = { ...index };
+	delete remainingIndex[imagePath];
+	return {
+		...remainingIndex,
+		[newImagePath]: { ...provenance, pdfPath: newPdfPath },
+	};
+}
+
 /**
  * Records the PDF-page origin of a generated image without discarding a label
  * already associated with that image.
@@ -126,6 +223,43 @@ export function updateGeneratedPageProvenanceForRename(
 			: { ...provenance, pdfPath: updatedPdfPath };
 	}
 	return changed ? updatedIndex : index;
+}
+
+/**
+ * Tracks a user-initiated generated-image rename without changing source PDF
+ * paths. A destination index record is a conflict, so both records stay put.
+ */
+export function updateGeneratedPageImagePathsForRename(
+	index: GeneratedPageIndex,
+	oldPath: string,
+	newPath: string,
+): { generatedPages: GeneratedPageIndex; conflicts: string[] } {
+	const movingImagePaths = new Set(
+		Object.keys(index).filter((imagePath) =>
+			imagePath === oldPath || imagePath.startsWith(`${oldPath}/`),
+		),
+	);
+	const conflicts: string[] = [];
+	let changed = false;
+	const generatedPages: GeneratedPageIndex = {};
+	for (const [imagePath, provenance] of Object.entries(index)) {
+		const newImagePath = replacePathPrefix(imagePath, oldPath, newPath);
+		if (
+			newImagePath !== imagePath &&
+			index[newImagePath] &&
+			!movingImagePaths.has(newImagePath)
+		) {
+			conflicts.push(imagePath);
+			generatedPages[imagePath] = provenance;
+			continue;
+		}
+		changed ||= newImagePath !== imagePath;
+		generatedPages[newImagePath] = provenance;
+	}
+	return {
+		generatedPages: changed ? generatedPages : index,
+		conflicts,
+	};
 }
 
 /** Returns a recorded image for a PDF page, preferring a stable path order. */

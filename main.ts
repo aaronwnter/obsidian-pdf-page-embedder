@@ -6,13 +6,13 @@ import { resolveGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
 import {
 	findGeneratedPagePaths,
 	findGeneratedPageOutputPathForExistingLayout,
-	getGeneratedPageOutputStrategy,
 	hasGeneratedPageProvenance,
-	inferGeneratedPageOutputStrategy,
 	isGeneratedPageStale,
+	moveGeneratedPageProvenanceForPdfRename,
+	planGeneratedPageMovesForPdfRename,
 	rebuildGeneratedPageProvenance,
 	recordGeneratedPageProvenance,
-	updateGeneratedPageProvenanceForRename,
+	updateGeneratedPageImagePathsForRename,
 } from "utils/generatedPageProvenance";
 import {
 	formatPdfPageSourceLink,
@@ -26,6 +26,7 @@ import {
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
 import { hasValidPdfPageNumbers } from "utils/pdfPageRequest";
 import { renderPdfPages } from "utils/pdfPageRenderer";
+import { SerialTaskQueue } from "utils/serialTaskQueue";
 import { repairPdfPrinterSettings } from "utils/settingsValidation";
 import {
 	Editor,
@@ -56,14 +57,23 @@ type LegacyPluginData = PluginData & {
 	preservePdfLink?: boolean;
 };
 
+type VaultRename = {
+	isFolder: boolean;
+	isPdfFile: boolean;
+	name: string;
+	newPath: string;
+	oldPath: string;
+};
+
 export default class PdfPrinterPlugin extends Plugin {
 	settings!: PdfPrinterSettings;
 	generatedPages: GeneratedPageIndex = {};
+	private readonly renameQueue = new SerialTaskQueue();
 
 	async onload() {
 		await this.loadSettings();
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-			void this.updateGeneratedPageProvenanceForRename(file, oldPath);
+			this.queueVaultRename(file, oldPath);
 		}));
 		this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
 			if (!(file instanceof TFile) || file.extension !== "pdf") return;
@@ -527,105 +537,119 @@ export default class PdfPrinterPlugin extends Plugin {
 		await this.saveSettings();
 	}
 
-	private async updateGeneratedPageProvenanceForRename(
-		file: TAbstractFile,
-		oldPath: string,
-	): Promise<void> {
-		const previousIndex = this.generatedPages;
-		this.generatedPages = updateGeneratedPageProvenanceForRename(
-			this.generatedPages,
+	private queueVaultRename(file: TAbstractFile, oldPath: string): void {
+		const rename: VaultRename = {
+			isFolder: file instanceof TFolder,
+			isPdfFile: file instanceof TFile &&
+				oldPath.toLowerCase().endsWith(".pdf") &&
+				file.path.toLowerCase().endsWith(".pdf"),
+			name: file.name,
+			newPath: file.path,
 			oldPath,
-			file.path,
-		);
+		};
+		void this.renameQueue.enqueue(() => this.handleVaultRename(rename)).catch((error) => {
+			console.error("pdf-page-embedder: could not process vault rename", error);
+			new Notice("Could not update generated images after a vault rename.");
+		});
+	}
+
+	private async handleVaultRename(rename: VaultRename): Promise<void> {
+		const previousIndex = this.generatedPages;
 		let moved = 0;
-		let skipped = 0;
-		const renamedPdfs = file instanceof TFile && file.extension === "pdf"
-			? [{ file, oldPath }]
-			: file instanceof TFolder
-				? this.app.vault.getFiles()
-					.filter((candidate) =>
-						candidate.extension === "pdf" &&
-						candidate.path.startsWith(`${file.path}/`),
-					)
-					.map((candidate) => ({
-						file: candidate,
-						oldPath: `${oldPath}${candidate.path.slice(file.path.length)}`,
-					}))
-				: [];
-		for (const renamedPdf of renamedPdfs) {
+		const skippedPaths: string[] = [];
+		for (const { oldPdfPath, newPdfPath } of this.renamedPdfPaths(rename)) {
 			const result = await this.moveGeneratedPagesForRenamedPdf(
-				renamedPdf.file,
-				renamedPdf.oldPath,
+				oldPdfPath,
+				newPdfPath,
 			);
 			moved += result.moved;
-			skipped += result.skipped;
+			skippedPaths.push(...result.skippedPaths);
 		}
+
+		const imageRename = updateGeneratedPageImagePathsForRename(
+			this.generatedPages,
+			rename.oldPath,
+			rename.newPath,
+		);
+		this.generatedPages = imageRename.generatedPages;
+		skippedPaths.push(...imageRename.conflicts);
+		if (moved > 0) await this.removeEmptyGeneratedImageFoldersInternal(false);
 		if (this.generatedPages !== previousIndex) await this.saveSettings();
-		if (moved > 0 || skipped > 0) {
-			const skippedText = skipped > 0
-				? ` Skipped ${skipped} image${skipped === 1 ? "" : "s"}.`
-				: "";
-			new Notice(
-				`Moved ${moved} generated image${moved === 1 ? "" : "s"} for ${file.name}.${skippedText}`,
-			);
+		if (moved > 0 || skippedPaths.length > 0) {
+			const movedText = `Moved ${moved} generated image${moved === 1 ? "" : "s"} for ${rename.name}.`;
+			const skippedText = skippedPaths.length === 0
+				? ""
+				: ` Skipped ${skippedPaths.length} image${skippedPaths.length === 1 ? "" : "s"}: ${skippedPaths.slice(0, 3).join(", ")}${skippedPaths.length > 3 ? ", …" : ""}.`;
+			new Notice(`${movedText}${skippedText}`);
 		}
 	}
 
-	private async moveGeneratedPagesForRenamedPdf(
-		file: TFile,
-		oldPdfPath?: string,
-	): Promise<{ moved: number; skipped: number }> {
-		let moved = 0;
-		let skipped = 0;
-		const imageFolder = normalizePath(this.settings.imageFolder);
-		const generatedPages = Object.entries(this.generatedPages).filter(
-			([, provenance]) => provenance.pdfPath === file.path,
-		);
-		for (const [imagePath, provenance] of generatedPages) {
-			const strategy = oldPdfPath
-				? getGeneratedPageOutputStrategy(
-					imagePath,
-					imageFolder,
-					oldPdfPath,
-					provenance.pageNumber,
-				) ?? inferGeneratedPageOutputStrategy(imagePath, imageFolder)
-				: inferGeneratedPageOutputStrategy(imagePath, imageFolder);
-			if (!strategy) continue;
-			const newImagePath = getPdfPageOutputPath(
-				imageFolder,
-				file.path,
-				provenance.pageNumber,
-				strategy,
+	private renamedPdfPaths(rename: VaultRename): {
+	oldPdfPath: string;
+	newPdfPath: string;
+	}[] {
+		if (rename.isPdfFile) {
+			return [{ oldPdfPath: rename.oldPath, newPdfPath: rename.newPath }];
+		}
+		if (!rename.isFolder) return [];
+
+		const renamedPaths = new Map<string, string>();
+		for (const { pdfPath } of Object.values(this.generatedPages)) {
+			if (!pdfPath.startsWith(`${rename.oldPath}/`)) continue;
+			renamedPaths.set(
+				pdfPath,
+				`${rename.newPath}${pdfPath.slice(rename.oldPath.length)}`,
 			);
-			if (newImagePath === imagePath) continue;
+		}
+		return [...renamedPaths.entries()].map(([oldPdfPath, newPdfPath]) => ({
+			oldPdfPath,
+			newPdfPath,
+		}));
+	}
+
+	private async moveGeneratedPagesForRenamedPdf(
+		oldPdfPath: string,
+		newPdfPath: string,
+	): Promise<{ moved: number; skippedPaths: string[] }> {
+		let moved = 0;
+		const skippedPaths: string[] = [];
+		const { moves, skipped } = planGeneratedPageMovesForPdfRename(
+			this.generatedPages,
+			normalizePath(this.settings.imageFolder),
+			oldPdfPath,
+			newPdfPath,
+		);
+		skippedPaths.push(...skipped.map(({ imagePath }) => imagePath));
+		for (const { imagePath, newImagePath } of moves) {
 			const imageFile = this.app.vault.getFileByPath(imagePath);
 			if (!imageFile || imageFile.extension !== "webp") {
-				skipped += 1;
+				skippedPaths.push(imagePath);
 				continue;
 			}
 			if (
 				this.app.vault.getAbstractFileByPath(newImagePath) ||
 				this.generatedPages[newImagePath]
 			) {
-				skipped += 1;
+				skippedPaths.push(imagePath);
 				continue;
 			}
 			try {
 				await this.ensureFolder(newImagePath.slice(0, newImagePath.lastIndexOf("/")));
 				await this.app.fileManager.renameFile(imageFile, newImagePath);
-				this.generatedPages = updateGeneratedPageProvenanceForRename(
+				this.generatedPages = moveGeneratedPageProvenanceForPdfRename(
 					this.generatedPages,
 					imagePath,
 					newImagePath,
+					oldPdfPath,
+					newPdfPath,
 				);
 				moved += 1;
 			} catch (error) {
 				console.error("pdf-page-embedder: could not move generated image", error);
-				skipped += 1;
+				skippedPaths.push(imagePath);
 			}
 		}
-		if (moved > 0) await this.removeEmptyGeneratedImageFoldersInternal(false);
-		return { moved, skipped };
+		return { moved, skippedPaths };
 	}
 
 	async removeEmptyGeneratedImageFolders(): Promise<void> {

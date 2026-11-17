@@ -11,9 +11,12 @@ const {
 	getGeneratedPageOutputStrategy,
 	inferGeneratedPageOutputStrategy,
 	isGeneratedPageStale,
+	moveGeneratedPageProvenanceForPdfRename,
+	planGeneratedPageMovesForPdfRename,
 	rebuildGeneratedPageProvenance,
 	recordGeneratedPageProvenance,
 	updateGeneratedPageProvenanceForRename,
+	updateGeneratedPageImagePathsForRename,
 } = await import(
 	`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
@@ -99,6 +102,21 @@ test("updates provenance paths when a source folder or generated image moves", (
 	);
 });
 
+test("retains a generated-image record when its rename destination already has provenance", () => {
+	const index = {
+		"Generated/Old/Portrait-001.webp": {
+			pdfPath: "PDFs/Portrait.pdf", pageNumber: 1, label: null,
+		},
+		"Generated/New/Portrait-001.webp": {
+			pdfPath: "PDFs/Other.pdf", pageNumber: 1, label: null,
+		},
+	};
+	assert.deepEqual(
+		updateGeneratedPageImagePathsForRename(index, "Generated/Old", "Generated/New"),
+		{ generatedPages: index, conflicts: ["Generated/Old/Portrait-001.webp"] },
+	);
+});
+
 test("finds recorded pages and detects changed sources without re-rendering", () => {
 	const index = {
 		"Generated/Portrait-001.webp": {
@@ -134,6 +152,80 @@ test("identifies a generated image layout so renames can preserve it", () => {
 			2,
 		),
 		null,
+	);
+});
+
+test("plans only generated images whose recorded source and output layout match a PDF rename", () => {
+	const oldPdfPath = "PDFs/Portrait.pdf";
+	const newPdfPath = "Archive/Portrait.pdf";
+	const imagePath = "Attachments/Portrait--53e3e6a8/Portrait-002.webp";
+	const index = {
+		[imagePath]: {
+			pdfPath: oldPdfPath, pageNumber: 2, label: null,
+		},
+		"Attachments/unrelated.webp": {
+			pdfPath: oldPdfPath, pageNumber: 7, label: null,
+		},
+	};
+
+	assert.deepEqual(
+		planGeneratedPageMovesForPdfRename(
+			index,
+			"Attachments",
+			oldPdfPath,
+			newPdfPath,
+		),
+		{
+			moves: [{
+				imagePath,
+				newImagePath: "Attachments/Portrait--a1f50911/Portrait-002.webp",
+				pageNumber: 2,
+			}],
+			skipped: [{
+				imagePath: "Attachments/unrelated.webp",
+				reason: "output path does not match the recorded source",
+			}],
+		},
+	);
+});
+
+test("updates one provenance record only after its generated image moves", () => {
+	const imagePath = "Attachments/Portrait--53e3e6a8/Portrait-002.webp";
+	const newImagePath = "Attachments/Portrait--a1f50911/Portrait-002.webp";
+	const index = {
+		[imagePath]: {
+			pdfPath: "PDFs/Portrait.pdf", pageNumber: 2, label: "Page two",
+		},
+	};
+	assert.deepEqual(
+		moveGeneratedPageProvenanceForPdfRename(
+			index,
+			imagePath,
+			newImagePath,
+			"PDFs/Portrait.pdf",
+			"Archive/Portrait.pdf",
+		),
+		{
+			[newImagePath]: {
+				pdfPath: "Archive/Portrait.pdf", pageNumber: 2, label: "Page two",
+			},
+		},
+	);
+	const destinationConflict = {
+		...index,
+		[newImagePath]: {
+			pdfPath: "Archive/Other.pdf", pageNumber: 2, label: null,
+		},
+	};
+	assert.equal(
+		moveGeneratedPageProvenanceForPdfRename(
+			destinationConflict,
+			imagePath,
+			newImagePath,
+			"PDFs/Portrait.pdf",
+			"Archive/Portrait.pdf",
+		),
+		destinationConflict,
 	);
 });
 
