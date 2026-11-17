@@ -5,6 +5,15 @@ export type GeneratedPageEmbed = {
 	imagePath: string;
 };
 
+type LinkDestination = {
+	path: string;
+};
+
+type ResolveLinkpath = (
+	linkpath: string,
+	sourcePath: string,
+) => LinkDestination | null;
+
 const EMBED_PATTERN = /!\[\[([^\]\n]+)\]\]/g;
 
 /**
@@ -30,4 +39,23 @@ export function findGeneratedPageEmbedAtCursor(
 	}
 
 	return null;
+}
+
+/**
+ * Resolves a generated-image link through Obsidian before its path is used as
+ * a provenance key or vault path.
+ */
+export function resolveGeneratedPageEmbedAtCursor(
+	line: string,
+	cursorCh: number,
+	sourcePath: string,
+	resolveLinkpath: ResolveLinkpath,
+): GeneratedPageEmbed | null {
+	const pageEmbed = findGeneratedPageEmbedAtCursor(line, cursorCh);
+	if (!pageEmbed) return null;
+
+	const file = resolveLinkpath(pageEmbed.imagePath, sourcePath);
+	if (!file) return null;
+
+	return { ...pageEmbed, imagePath: file.path };
 }

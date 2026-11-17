@@ -55,13 +55,11 @@ Add a later Settings action, **Migrate generated images to current layout**. It 
 
 ## Test fixtures
 
-The test vault contains `Example PDF.pdf`, `Landscape.pdf`, `Portrait.pdf`, and `Nested/Portrait.pdf`. The duplicate `Portrait.pdf` names are intentional.
+The test vault contains `PDFs/Landscape.pdf`, `PDFs/Portrait.pdf`, `PDFs/Nested/Example PDF.pdf`, and `Test/Portrait Test.pdf`.
 
 ## Next task
 
-Resolve note links through Obsidian before using them as vault paths. Start with generated-WebP embeds in `utils/generatedPageEmbed.ts` and the refresh and source-link commands in `main.ts`: they currently use the raw wiki-link target as an index key and vault path.
-
-Use the active note as the resolution source. Cover vault-relative, bare-filename, and `../` embeds with tests before changing the commands. Then apply the same resolution rule to plain PDF embeds and duplicate source-link detection.
+Serialize source and generated-image rename handling. Process vault rename events through one queue so quick consecutive moves cannot race with index saves or image moves caused by the plugin itself. Move only images whose validated provenance and output strategy agree with the rename. Treat destination files or index entries as conflicts, retain the original record, and report skipped items. After a successful move, update links through Obsidian, update provenance once, and remove only empty folders below the configured generated-image root.
 
 Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes remain deferred; see [[ROADMAP.md]].
 

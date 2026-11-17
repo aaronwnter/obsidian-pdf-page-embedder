@@ -5,7 +5,7 @@ import { build } from "esbuild";
 const { outputFiles } = await build({
 	entryPoints: ["utils/pdfPageEmbed.ts"], bundle: true, write: false, format: "esm",
 });
-const { findPdfPageEmbedAtCursor } = await import(
+const { findPdfPageEmbedAtCursor, resolvePdfPageEmbed } = await import(
 	`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
@@ -77,5 +77,28 @@ test("rejects non-page embeds, invalid page numbers, and cursor positions outsid
 		["Before ![[PDFs/Portrait.pdf#page=2]] after", 0],
 	]) {
 		assert.equal(findPdfPageEmbedAtCursor(line, cursorCh), null);
+	}
+});
+
+test("resolves PDF page embeds to vault paths from the active note", () => {
+	const sourcePath = "Notes/Project/meeting.md";
+	const resolvedPaths = new Map([
+		["PDFs/Lecture.pdf", "PDFs/Lecture.pdf"],
+		["Lecture.pdf", "Notes/Project/Lecture.pdf"],
+		["../PDFs/Lecture.pdf", "Notes/PDFs/Lecture.pdf"],
+	]);
+	const resolveLinkpath = (linkpath, source) => {
+		assert.equal(source, sourcePath);
+		const path = resolvedPaths.get(linkpath);
+		return path ? { path } : null;
+	};
+
+	for (const [linkpath, pdfPath] of resolvedPaths) {
+		const embed = findPdfPageEmbedAtCursor(`![[${linkpath}#page=4]]`, 5);
+		assert.ok(embed);
+		assert.equal(
+			resolvePdfPageEmbed(embed, sourcePath, resolveLinkpath)?.pdfPath,
+			pdfPath,
+		);
 	}
 });

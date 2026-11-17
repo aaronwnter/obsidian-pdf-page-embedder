@@ -15,6 +15,15 @@ export function formatPdfPageSourceLink(
 
 const LINK_PATTERN = /\[\[([^\]\n]+)\]\]/g;
 
+type LinkDestination = {
+	path: string;
+};
+
+type ResolveLinkpath = (
+	linkpath: string,
+	sourcePath: string,
+) => LinkDestination | null;
+
 /**
  * Returns true when a line contains a link to the given PDF page. Links with
  * a custom label or additional PDF viewer parameters still count as matches.
@@ -23,6 +32,8 @@ export function lineHasPdfPageSourceLink(
 	line: string,
 	pdfPath: string,
 	pageNumber: number,
+	sourcePath: string,
+	resolveLinkpath: ResolveLinkpath,
 ): boolean {
 	for (const match of line.matchAll(LINK_PATTERN)) {
 		const [rawTarget] = match[1].split("|", 1);
@@ -34,7 +45,8 @@ export function lineHasPdfPageSourceLink(
 		const linkedPage = new URLSearchParams(
 			target.slice(fragmentIndex + 1),
 		).get("page");
-		if (linkedPdfPath === pdfPath && linkedPage === String(pageNumber)) return true;
+		const linkedFile = resolveLinkpath(linkedPdfPath, sourcePath);
+		if (linkedFile?.path === pdfPath && linkedPage === String(pageNumber)) return true;
 	}
 
 	return false;

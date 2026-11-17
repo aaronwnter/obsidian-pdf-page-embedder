@@ -8,6 +8,15 @@ export type PdfPageEmbed = {
 	displayValue: string | null;
 };
 
+type LinkDestination = {
+	path: string;
+};
+
+type ResolveLinkpath = (
+	linkpath: string,
+	sourcePath: string,
+) => LinkDestination | null;
+
 const EMBED_PATTERN = /!\[\[([^\]\n]+)\]\]/g;
 
 function parsePdfPageTarget(target: string): {
@@ -62,4 +71,16 @@ export function findPdfPageEmbedAtCursor(
 	}
 
 	return null;
+}
+
+/** Resolves the PDF target before it is used as a vault path. */
+export function resolvePdfPageEmbed(
+	pageEmbed: PdfPageEmbed,
+	sourcePath: string,
+	resolveLinkpath: ResolveLinkpath,
+): PdfPageEmbed | null {
+	const file = resolveLinkpath(pageEmbed.pdfPath, sourcePath);
+	if (!file) return null;
+
+	return { ...pageEmbed, pdfPath: file.path };
 }

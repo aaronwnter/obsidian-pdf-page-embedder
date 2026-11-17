@@ -20,17 +20,55 @@ test("formats a source link with an explicit or default label", () => {
 	);
 });
 
-test("recognizes an equivalent PDF page link regardless of its label or viewer parameters", () => {
+test("recognizes an equivalent PDF page link regardless of path form, label, or viewer parameters", () => {
+	const sourcePath = "Notes/Project/meeting.md";
+	const resolveLinkpath = (linkpath, source) => {
+		assert.equal(source, sourcePath);
+		const paths = {
+			"PDFs/Portrait.pdf": "PDFs/Portrait.pdf",
+			"Portrait.pdf": "Notes/Project/Portrait.pdf",
+			"../PDFs/Portrait.pdf": "Notes/PDFs/Portrait.pdf",
+		};
+		return paths[linkpath] ? { path: paths[linkpath] } : null;
+	};
 	assert.equal(
 		lineHasPdfPageSourceLink(
 			"See [[PDFs/Portrait.pdf#page=3&height=400|Custom label]].",
 			"PDFs/Portrait.pdf",
 			3,
+			sourcePath,
+			resolveLinkpath,
 		),
 		true,
 	);
 	assert.equal(
-		lineHasPdfPageSourceLink("[[PDFs/Portrait.pdf#page=2]]", "PDFs/Portrait.pdf", 3),
+		lineHasPdfPageSourceLink(
+			"[[PDFs/Portrait.pdf#page=2]]",
+			"PDFs/Portrait.pdf",
+			3,
+			sourcePath,
+			resolveLinkpath,
+		),
 		false,
+	);
+	assert.equal(
+		lineHasPdfPageSourceLink(
+			"[[Portrait.pdf#page=3]]",
+			"Notes/Project/Portrait.pdf",
+			3,
+			sourcePath,
+			resolveLinkpath,
+		),
+		true,
+	);
+	assert.equal(
+		lineHasPdfPageSourceLink(
+			"[[../PDFs/Portrait.pdf#page=3]]",
+			"Notes/PDFs/Portrait.pdf",
+			3,
+			sourcePath,
+			resolveLinkpath,
+		),
+		true,
 	);
 });

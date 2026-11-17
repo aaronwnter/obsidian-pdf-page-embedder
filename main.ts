@@ -2,7 +2,7 @@ import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { findEmptyGeneratedFolderPaths, FolderTree } from "utils/emptyGeneratedFolders";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
-import { findGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
+import { resolveGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
 import {
 	findGeneratedPagePaths,
 	findGeneratedPageOutputPathForExistingLayout,
@@ -18,7 +18,11 @@ import {
 	formatPdfPageSourceLink,
 	lineHasPdfPageSourceLink,
 } from "utils/pdfPageSourceLink";
-import { findPdfPageEmbedAtCursor, PdfPageEmbed } from "utils/pdfPageEmbed";
+import {
+	findPdfPageEmbedAtCursor,
+	PdfPageEmbed,
+	resolvePdfPageEmbed,
+} from "utils/pdfPageEmbed";
 import { getPdfPageOutputPath } from "utils/pdfPageOutput";
 import { hasValidPdfPageNumbers } from "utils/pdfPageRequest";
 import { renderPdfPages } from "utils/pdfPageRenderer";
@@ -186,12 +190,9 @@ export default class PdfPrinterPlugin extends Plugin {
 		}
 
 		const cursor = editor.getCursor();
-		const pageEmbed = findGeneratedPageEmbedAtCursor(
-			editor.getLine(cursor.line),
-			cursor.ch,
-		);
+		const pageEmbed = this.resolveGeneratedPageEmbedAtCursor(editor);
 		if (!pageEmbed) {
-			new Notice("Place the cursor inside a generated WebP embed.");
+			new Notice("Place the cursor inside a resolvable generated WebP embed.");
 			return;
 		}
 
@@ -207,15 +208,20 @@ export default class PdfPrinterPlugin extends Plugin {
 		const nextLine = cursor.line < editor.lineCount() - 1
 			? editor.getLine(cursor.line + 1)
 			: "";
+		const sourcePath = this.activeNotePath();
 		if (
 			lineHasPdfPageSourceLink(
 				previousLine,
 				provenance.pdfPath,
 				provenance.pageNumber,
+				sourcePath,
+				this.app.metadataCache.getFirstLinkpathDest.bind(this.app.metadataCache),
 			) || lineHasPdfPageSourceLink(
 				nextLine,
 				provenance.pdfPath,
 				provenance.pageNumber,
+				sourcePath,
+				this.app.metadataCache.getFirstLinkpathDest.bind(this.app.metadataCache),
 			)
 		) {
 			new Notice("A source link is already adjacent to this image.");
@@ -242,13 +248,9 @@ export default class PdfPrinterPlugin extends Plugin {
 	}
 
 	private async refreshGeneratedPdfPageAtCursor(editor: Editor): Promise<void> {
-		const cursor = editor.getCursor();
-		const pageEmbed = findGeneratedPageEmbedAtCursor(
-			editor.getLine(cursor.line),
-			cursor.ch,
-		);
+		const pageEmbed = this.resolveGeneratedPageEmbedAtCursor(editor);
 		if (!pageEmbed) {
-			new Notice("Place the cursor inside a generated WebP embed.");
+			new Notice("Place the cursor inside a resolvable generated WebP embed.");
 			return;
 		}
 
@@ -278,11 +280,7 @@ export default class PdfPrinterPlugin extends Plugin {
 		if (activeFile?.extension === "pdf") return true;
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!activeView?.file) return false;
-		const cursor = activeView.editor.getCursor();
-		return findGeneratedPageEmbedAtCursor(
-			activeView.editor.getLine(cursor.line),
-			cursor.ch,
-		) !== null;
+		return this.resolveGeneratedPageEmbedAtCursor(activeView.editor) !== null;
 	}
 
 	private async refreshGeneratedPdfImages(): Promise<void> {
@@ -681,26 +679,45 @@ export default class PdfPrinterPlugin extends Plugin {
 		editor: Editor,
 	): { file: TFile; pageEmbed: PdfPageEmbed } | null {
 		const cursor = editor.getCursor();
-		const pageEmbed = findPdfPageEmbedAtCursor(
+		const parsedEmbed = findPdfPageEmbedAtCursor(
 			editor.getLine(cursor.line),
 			cursor.ch,
 		);
-		if (!pageEmbed) {
+		if (!parsedEmbed) {
 			new Notice("Place the cursor inside ![[file.pdf#page=N]].");
 			return null;
 		}
 
-		const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
-		const file = this.app.metadataCache.getFirstLinkpathDest(
-			pageEmbed.pdfPath,
-			sourcePath,
+		const pageEmbed = resolvePdfPageEmbed(
+			parsedEmbed,
+			this.activeNotePath(),
+			this.app.metadataCache.getFirstLinkpathDest.bind(this.app.metadataCache),
 		);
-		if (!file || file.extension !== "pdf") {
-			new Notice(`PDF not found: ${pageEmbed.pdfPath}`);
+		const file = pageEmbed
+			? this.app.vault.getFileByPath(pageEmbed.pdfPath)
+			: null;
+		if (!pageEmbed || !file || file.extension !== "pdf") {
+			new Notice(`PDF not found: ${parsedEmbed.pdfPath}`);
 			return null;
 		}
 
 		return { file, pageEmbed };
+	}
+
+	private resolveGeneratedPageEmbedAtCursor(editor: Editor) {
+		const cursor = editor.getCursor();
+		return resolveGeneratedPageEmbedAtCursor(
+			editor.getLine(cursor.line),
+			cursor.ch,
+			this.activeNotePath(),
+			this.app.metadataCache.getFirstLinkpathDest.bind(this.app.metadataCache),
+		);
+	}
+
+	private activeNotePath(): string {
+		return this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path
+			?? this.app.workspace.getActiveFile()?.path
+			?? "";
 	}
 
 	private async ensureFolder(folderPath: string): Promise<void> {
@@ -787,7 +804,11 @@ export default class PdfPrinterPlugin extends Plugin {
 			);
 			return null;
 		}
-		const file = this.app.metadataCache.getFirstLinkpathDest(filePath, "");
+		const [rawTarget] = filePath.split("|", 1);
+		const file = this.app.metadataCache.getFirstLinkpathDest(
+			rawTarget.trim(),
+			this.activeNotePath(),
+		);
 		if (!file) {
 			new Notice(`File not found: ${filePath}.`);
 			return null;
