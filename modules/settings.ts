@@ -148,5 +148,12 @@ export class PdfPrinterSettingsTab extends PluginSettingTab {
 			.addButton((button) => button
 				.setButtonText("Remove empty folders")
 				.onClick(() => this.plugin.removeEmptyGeneratedImageFolders()));
+
+		new Setting(this.containerEl)
+			.setName("Generated-image layout migration")
+			.setDesc("Preview and confirm moving existing generated images to the current organization setting.")
+			.addButton((button) => button
+				.setButtonText("Migrate generated images to current layout")
+				.onClick(() => this.plugin.showGeneratedImageLayoutMigrationPreview()));
 	}
 }

@@ -30,6 +30,7 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 - Expose only cursor-first conversion, contextual refresh, source-link repair, and index repair commands. Empty-folder cleanup lives in Settings.
 - Resolve PDF and generated-WebP embeds through Obsidian from the active note before using paths for vault access or provenance. Adjacent source-link checks resolve their targets the same way.
 - Serialize vault rename handling so consecutive source and generated-image moves run in order. Only output paths that match validated provenance move, while conflicts retain their original records.
+- Provide a confirmed Settings migration to the selected generated-image layout. It previews moves, conflicts, missing images, and empty folders. Refresh and index repair do not migrate layouts.
 
 An **Insert generated PDF page image** command is intentionally out of scope. Obsidian already makes it easy to embed an image directly, so this would add no meaningful UI benefit.
 
@@ -41,18 +42,13 @@ The old selection and PDF-preview conversion code remains unregistered as a temp
 
 ## Next: ordered work
 
-1. Add manual migration to the current generated-image layout.
-   - Add a Settings action, `Migrate generated images to current layout`, with a preview of moves, conflicts, missing images, and empty folders.
-   - Move only existing WebPs through Obsidian's file rename mechanism so note embeds update with each file.
-   - Require missing images to be refreshed first. Rebuild and refresh must never migrate layouts automatically.
-
-2. Replace the selection-based conversion pipeline with the tested provenance-aware service.
+1. Replace the selection-based conversion pipeline with the tested provenance-aware service.
    - Accept a plain PDF embed such as `![[Lectures/Week 03.pdf]]` for full-document and range conversion.
    - Treat `![[Lectures/Week 03.pdf#page=12]]` as a single-page conversion only. Do not offer range or full-document conversion for it.
    - Resolve the source from the cursor, select the requested pages, render or safely reuse each deterministic WebP, and record provenance for every page.
    - Return structured results so callers can distinguish rendered, reused, stale, skipped, and failed pages without guessing from notices.
 
-3. Add two cursor commands for a plain PDF embed: `Convert PDF pages` and `Convert and insert PDF pages`.
+2. Add two cursor commands for a plain PDF embed: `Convert PDF pages` and `Convert and insert PDF pages`.
    - Both commands use the same range prompt. Empty or whitespace-only input, and `full` in any letter case, select the full document.
    - Accept inclusive expressions such as `2-5` and `2, 5, 7-9`, preserving document order without duplicates.
    - `Convert PDF pages` creates or reuses images and records provenance without changing the note.
@@ -60,25 +56,25 @@ The old selection and PDF-preview conversion code remains unregistered as a temp
    - A full-document insert places one source-PDF link above the image group, ignoring `sourceLinkPlacement`. A range insert places a page-specific link beside each image according to that setting.
    - Do not add an image-insertion command. Standard Obsidian embedding already covers that job.
 
-4. Remove superseded commands and the UUID pipeline.
+3. Remove superseded commands and the UUID pipeline.
    - Remove the development-only render and inspect commands once the user-facing cursor commands cover their useful behaviour.
    - Remove the deprecated selection commands, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
    - Confirm that no remaining command can create unindexed, non-deterministic generated images.
 
-5. Add source links for generated images in the current note, with a preview of intended changes.
+4. Add source links for generated images in the current note, with a preview of intended changes.
     - Resolve each generated image link before reading provenance.
     - Add only missing links and recognise an existing equivalent link even when it uses a relative path, custom label, or viewer parameters.
     - Show the proposed edits and require confirmation before changing the note.
 
-6. Convert all plain PDF embeds in the current note.
+5. Convert all plain PDF embeds in the current note.
     - Scan only plain PDF embeds, leave page-specific embeds alone, and present a preview with page counts, output paths, stale records, and conflicts.
     - Apply conversions as a deliberate confirmed operation. Avoid rewriting a note after a partial rendering failure.
 
-7. Convert all plain PDF embeds across the vault.
+6. Convert all plain PDF embeds across the vault.
     - Start with a dry run that reports affected notes, generated files, reused files, conflicts, and skipped embeds.
     - Require explicit confirmation, process notes predictably, and retain enough result detail to review or retry failures.
 
-8. Review remaining code and tests after the old pipeline is gone.
+7. Review remaining code and tests after the old pipeline is gone.
     - Remove dead types, comments, dependencies, and duplicate formatting paths.
     - Add regression coverage for every cleanup defect fixed above.
     - Measure before changing rendering performance or adding output-layout options.

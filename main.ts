@@ -1,5 +1,6 @@
 import { BrowserCanvasFactory } from "utils/canvas/canvasFactory";
 import { findEmptyGeneratedFolderPaths, FolderTree } from "utils/emptyGeneratedFolders";
+import { GeneratedImageMigrationModal } from "modules/generatedImageMigrationModal";
 import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
 import { resolveGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
@@ -27,6 +28,10 @@ import { getPdfPageOutputPath } from "utils/pdfPageOutput";
 import { hasValidPdfPageNumbers } from "utils/pdfPageRequest";
 import { renderPdfPages } from "utils/pdfPageRenderer";
 import { SerialTaskQueue } from "utils/serialTaskQueue";
+import {
+	GeneratedPageMigrationPreview,
+	planGeneratedPageLayoutMigration,
+} from "utils/generatedPageMigration";
 import { repairPdfPrinterSettings } from "utils/settingsValidation";
 import {
 	Editor,
@@ -654,6 +659,106 @@ export default class PdfPrinterPlugin extends Plugin {
 
 	async removeEmptyGeneratedImageFolders(): Promise<void> {
 		await this.removeEmptyGeneratedImageFoldersInternal(true);
+	}
+
+	showGeneratedImageLayoutMigrationPreview(): void {
+		const preview = this.generatedImageLayoutMigrationPreview();
+		new GeneratedImageMigrationModal(this.app, preview, async () => {
+			try {
+				await this.renameQueue.enqueue(() =>
+					this.migrateGeneratedImagesToCurrentLayout(preview),
+				);
+			} catch (error) {
+				console.error("pdf-page-embedder: could not migrate generated images", error);
+				new Notice("Could not migrate generated images. See the console for details.");
+			}
+		}).open();
+	}
+
+	private generatedImageLayoutMigrationPreview(): GeneratedPageMigrationPreview {
+		const files = this.app.vault.getFiles();
+		return planGeneratedPageLayoutMigration(
+			this.generatedPages,
+			normalizePath(this.settings.imageFolder),
+			this.settings.outputPathStrategy,
+			new Set(files.map((file) => file.path)),
+			new Set(files.filter((file) => file.extension === "webp").map((file) => file.path)),
+		);
+	}
+
+	private async migrateGeneratedImagesToCurrentLayout(
+		preview: GeneratedPageMigrationPreview,
+	): Promise<void> {
+		const currentPreview = this.generatedImageLayoutMigrationPreview();
+		if (JSON.stringify(currentPreview) !== JSON.stringify(preview)) {
+			new Notice("Generated images changed. Open the migration preview again.");
+			return;
+		}
+		if (preview.missingImages.length > 0) {
+			new Notice("Refresh every missing generated image before migration.");
+			return;
+		}
+
+		const previousIndex = this.generatedPages;
+		let moved = 0;
+		let skipped = 0;
+		for (const { imagePath, newImagePath, pdfPath, pageNumber } of preview.moves) {
+			const provenance = this.generatedPages[imagePath];
+			const imageFile = this.app.vault.getFileByPath(imagePath);
+			if (
+				!hasGeneratedPageProvenance(provenance, pdfPath, pageNumber) ||
+				!imageFile ||
+				imageFile.extension !== "webp" ||
+				this.app.vault.getAbstractFileByPath(newImagePath) ||
+				this.generatedPages[newImagePath]
+			) {
+				skipped += 1;
+				continue;
+			}
+			try {
+				await this.ensureFolder(newImagePath.slice(0, newImagePath.lastIndexOf("/")));
+				await this.app.fileManager.renameFile(imageFile, newImagePath);
+				this.generatedPages = updateGeneratedPageImagePathsForRename(
+					this.generatedPages,
+					imagePath,
+					newImagePath,
+				).generatedPages;
+				moved += 1;
+			} catch (error) {
+				console.error("pdf-page-embedder: could not migrate generated image", error);
+				skipped += 1;
+			}
+		}
+		const removed = moved > 0
+			? await this.removeListedEmptyGeneratedImageFolders(preview.emptyFolders)
+			: 0;
+		if (this.generatedPages !== previousIndex) await this.saveSettings();
+		const skippedText = skipped > 0
+			? ` Skipped ${skipped} image${skipped === 1 ? "" : "s"}.`
+			: "";
+		const removedText = removed > 0
+			? ` Removed ${removed} empty folder${removed === 1 ? "" : "s"}.`
+			: "";
+		new Notice(
+			`Migrated ${moved} generated image${moved === 1 ? "" : "s"}.${skippedText}${removedText}`,
+		);
+	}
+
+	private async removeListedEmptyGeneratedImageFolders(paths: string[]): Promise<number> {
+		const rootPath = normalizePath(this.settings.imageFolder);
+		let removed = 0;
+		for (const path of paths) {
+			if (!path.startsWith(`${rootPath}/`)) continue;
+			const folder = this.app.vault.getAbstractFileByPath(path);
+			if (!(folder instanceof TFolder) || folder.children.length > 0) continue;
+			try {
+				await this.app.vault.delete(folder, true);
+				removed += 1;
+			} catch (error) {
+				console.error("pdf-page-embedder: could not remove migrated image folder", error);
+			}
+		}
+		return removed;
 	}
 
 	private async removeEmptyGeneratedImageFoldersInternal(

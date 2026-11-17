@@ -47,19 +47,13 @@ Useful commands in the test vault:
 
 Use **Remove empty folders** under the Generated-image folder maintenance setting for cleanup. The legacy selection and PDF-preview conversion code is not registered and must not be manually tested.
 
-## Deferred layout migration
-
-Keep rebuild and refresh focused on repair. They must preserve each recorded image path and never reorganize output folders automatically.
-
-Add a later Settings action, **Migrate generated images to current layout**. It must preview moves, conflicts, missing images, and folders that would become empty. On confirmation, use Obsidian's file rename mechanism so note embeds update with each moved WebP. Missing images must be refreshed before migration. Never run this migration automatically.
-
 ## Test fixtures
 
 The test vault contains `PDFs/Landscape.pdf`, `PDFs/Portrait.pdf`, `PDFs/Nested/Example PDF.pdf`, and `Test/Portrait Test.pdf`.
 
 ## Next task
 
-Add manual migration to the current generated-image layout. Add a Settings action, `Migrate generated images to current layout`, with a preview of moves, conflicts, missing images, and folders that would become empty. Move only existing WebPs through Obsidian's file rename mechanism so note embeds update with each file. Missing images must be refreshed first. Rebuild and refresh must never migrate layouts automatically.
+Replace the selection-based conversion pipeline with the tested provenance-aware service. Accept a plain PDF embed such as `![[Lectures/Week 03.pdf]]` for full-document and range conversion. Treat `![[Lectures/Week 03.pdf#page=12]]` as a single-page conversion only. Resolve the source from the cursor, select requested pages, render or safely reuse deterministic WebPs, and record provenance for every page. Return structured results so callers can distinguish rendered, reused, stale, skipped, and failed pages.
 
 Do not add an image-insertion command: standard Obsidian embedding already covers that use case. Current-note and vault-wide scopes remain deferred; see [[ROADMAP.md]].
 
