@@ -5,10 +5,7 @@ import { formatPdfPageEmbed } from "utils/formatPdfPageEmbed";
 import { formatPrintedPages } from "utils/formatPrintedPages";
 import { resolveGeneratedPageEmbedAtCursor } from "utils/generatedPageEmbed";
 import {
-	findGeneratedPagePaths,
-	findGeneratedPageOutputPathForExistingLayout,
 	hasGeneratedPageProvenance,
-	isGeneratedPageStale,
 	moveGeneratedPageProvenanceForPdfRename,
 	planGeneratedPageMovesForPdfRename,
 	rebuildGeneratedPageProvenance,
@@ -24,7 +21,10 @@ import {
 	PdfPageEmbed,
 	resolvePdfPageEmbed,
 } from "utils/pdfPageEmbed";
-import { getPdfPageOutputPath } from "utils/pdfPageOutput";
+import {
+	PdfPageConversionResult,
+	planPdfPageConversion,
+} from "utils/pdfPageConversion";
 import { hasValidPdfPageNumbers } from "utils/pdfPageRequest";
 import { renderPdfPages } from "utils/pdfPageRenderer";
 import { SerialTaskQueue } from "utils/serialTaskQueue";
@@ -421,107 +421,124 @@ export default class PdfPrinterPlugin extends Plugin {
 		pageNumber: number,
 		label: string | null,
 	): Promise<{ outputPath: string; reused: boolean } | null> {
-		const expectedOutputPath = getPdfPageOutputPath(
-			this.settings.imageFolder,
-			file.path,
-			pageNumber,
-			this.settings.outputPathStrategy,
-		);
-		let indexedOutputPath: string | null = null;
-		const existingImagePaths = new Set<string>();
-		for (const imagePath of findGeneratedPagePaths(
-			this.generatedPages,
-			file.path,
-			pageNumber,
-		)) {
-			const imageFile = this.app.vault.getFileByPath(imagePath);
-			if (imageFile?.extension === "webp") {
-				indexedOutputPath = imagePath;
-				break;
-			}
-		}
-		for (const [imagePath] of Object.entries(this.generatedPages)) {
-			if (this.app.vault.getFileByPath(imagePath)?.extension === "webp") {
-				existingImagePaths.add(imagePath);
-			}
-		}
-		const existingLayoutOutputPath = findGeneratedPageOutputPathForExistingLayout(
-			this.generatedPages,
-			existingImagePaths,
-			normalizePath(this.settings.imageFolder),
-			file.path,
-			pageNumber,
-		);
-		const expectedProvenance = this.generatedPages[expectedOutputPath];
-		const expectedFile = this.app.vault.getFileByPath(expectedOutputPath);
+		const [result] = await this.convertPdfPages(file, [pageNumber], label);
 		if (
-			expectedProvenance &&
-			!hasGeneratedPageProvenance(expectedProvenance, file.path, pageNumber) &&
-			!expectedFile &&
-			!indexedOutputPath &&
-			!existingLayoutOutputPath
+			(result.status === "rendered" || result.status === "reused") &&
+			result.outputPath
 		) {
-			new Notice(`Output path is reserved by a missing generated page: ${expectedOutputPath}`);
-			return null;
+			return { outputPath: result.outputPath, reused: result.status === "reused" };
 		}
-		const outputPath = indexedOutputPath ?? existingLayoutOutputPath ?? expectedOutputPath;
-		if (
-			outputPath === expectedOutputPath &&
-			expectedProvenance &&
-			!hasGeneratedPageProvenance(expectedProvenance, file.path, pageNumber) &&
-			expectedFile?.extension === "webp"
-		) {
-			new Notice(`Output path belongs to another generated page: ${expectedOutputPath}`);
-			return null;
+		if (result.status === "stale") {
+			new Notice("Source PDF changed. Refresh the generated image explicitly before reusing it.");
+		} else {
+			new Notice(result.reason ?? "Could not generate the requested PDF page.");
 		}
-		const existingFile = this.app.vault.getFileByPath(outputPath);
-		if (existingFile) {
-			if (existingFile.extension === "webp") {
-				const provenance = this.generatedPages[outputPath];
-				if (!hasGeneratedPageProvenance(provenance, file.path, pageNumber)) {
-					new Notice(`Output path is occupied by an unindexed image: ${outputPath}`);
-					return null;
-				}
-				if (
-					provenance && isGeneratedPageStale(
-						provenance,
-						file.stat.mtime,
-						existingFile.stat.mtime,
-					)
-				) {
-					new Notice(
-						"Source PDF changed. Refresh the generated image explicitly before reusing it.",
+		return null;
+	}
+
+	private async convertPdfPages(
+		file: TFile,
+		pageNumbers: number[],
+		label: string | null,
+	): Promise<PdfPageConversionResult[]> {
+		const requestedPageNumbers = [...new Set(pageNumbers)];
+		const getFile = (path: string) => {
+			const existingFile = this.app.vault.getFileByPath(path);
+			return existingFile
+				? { extension: existingFile.extension, mtime: existingFile.stat.mtime }
+				: null;
+		};
+		const existingImagePaths = new Set(
+			Object.keys(this.generatedPages).filter((imagePath) =>
+				getFile(imagePath)?.extension === "webp",
+			),
+		);
+		const plans = requestedPageNumbers.map((pageNumber) =>
+			planPdfPageConversion(pageNumber, {
+				pdfPath: file.path,
+				sourceMtime: file.stat.mtime,
+				imageFolder: normalizePath(this.settings.imageFolder),
+				outputPathStrategy: this.settings.outputPathStrategy,
+				generatedPages: this.generatedPages,
+				existingImagePaths,
+				getFile,
+			}),
+		);
+		const pagesToRender = plans
+			.filter((plan): plan is Extract<typeof plan, { kind: "render" }> => plan.kind === "render")
+			.map(({ pageNumber }) => pageNumber);
+		let renderedByPage = new Map<number, PdfPage>();
+		if (pagesToRender.length > 0) {
+			try {
+				const renderedPages = await this.parsePdf(file, false, pagesToRender);
+				if (renderedPages) {
+					renderedByPage = new Map(
+						renderedPages.map((page) => [page.pageNumber, page]),
 					);
-					return null;
 				}
-				await this.rememberGeneratedPage(
-					outputPath,
+			} catch (error) {
+				console.error("pdf-page-embedder: could not render PDF pages", error);
+			}
+		}
+
+		let updatedIndex = this.generatedPages;
+		const results: PdfPageConversionResult[] = [];
+		for (const plan of plans) {
+			if (plan.kind === "result") {
+				if (plan.result.status === "reused" && plan.result.outputPath) {
+					updatedIndex = recordGeneratedPageProvenance(
+						updatedIndex,
+						plan.result.outputPath,
+						file.path,
+						plan.result.pageNumber,
+						label,
+						file.stat.mtime,
+					);
+				}
+				results.push(plan.result);
+				continue;
+			}
+			const renderedPage = renderedByPage.get(plan.pageNumber);
+			if (!renderedPage) {
+				results.push({
+					pageNumber: plan.pageNumber,
+					status: "failed",
+					outputPath: plan.outputPath,
+					reason: "PDF rendering did not return this page",
+				});
+				continue;
+			}
+			try {
+				await this.ensureFolder(plan.outputPath.slice(0, plan.outputPath.lastIndexOf("/")));
+				await this.app.vault.createBinary(plan.outputPath, renderedPage.buffer);
+				updatedIndex = recordGeneratedPageProvenance(
+					updatedIndex,
+					plan.outputPath,
 					file.path,
-					pageNumber,
+					plan.pageNumber,
 					label,
 					file.stat.mtime,
 				);
-				return { outputPath, reused: true };
-			} else {
-				new Notice(`Output path is already occupied: ${outputPath}`);
+				results.push({
+					pageNumber: plan.pageNumber,
+					status: "rendered",
+					outputPath: plan.outputPath,
+				});
+			} catch (error) {
+				console.error("pdf-page-embedder: could not write generated image", error);
+				results.push({
+					pageNumber: plan.pageNumber,
+					status: "failed",
+					outputPath: plan.outputPath,
+					reason: "could not write generated image",
+				});
 			}
-			return null;
 		}
-
-		const pages = await this.parsePdf(file, false, [pageNumber]);
-		if (!pages?.[0]) return null;
-
-		const outputFolder = outputPath.slice(0, outputPath.lastIndexOf("/"));
-		await this.ensureFolder(outputFolder);
-		await this.app.vault.createBinary(outputPath, pages[0].buffer);
-		await this.rememberGeneratedPage(
-			outputPath,
-			file.path,
-			pageNumber,
-			label,
-			file.stat.mtime,
-		);
-		return { outputPath, reused: false };
+		if (updatedIndex !== this.generatedPages) {
+			this.generatedPages = updatedIndex;
+			await this.saveSettings();
+		}
+		return results;
 	}
 
 	private async rememberGeneratedPage(
