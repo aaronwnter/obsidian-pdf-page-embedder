@@ -2,6 +2,10 @@
 
 This project is a personal, cursor-first fork of PDF Printer. The goal is to turn a PDF page embed into a reusable WebP image while retaining a reliable route back to the original PDF page.
 
+## Branching and releases
+
+`main` is the personal-use branch. Develop each roadmap item on a `feature/<topic>` or `dev/<topic>` branch, test it in the isolated vault, then commit it there. Merge an accepted feature into `main` only when the user asks to promote it. Bump `manifest.json` and `versions.json` only for an intentional release.
+
 ## Implemented
 
 - Parse a `![[PDF.pdf#page=N]]` embed under the cursor without selecting it.
@@ -27,7 +31,7 @@ This project is a personal, cursor-first fork of PDF Printer. The goal is to tur
 - Release PDF, page, and canvas resources after every render attempt. Commands report one user-facing error when rendering or vault writes fail.
 - Preserve provenance for a missing WebP while its source PDF exists, then recreate the image at the recorded path through refresh.
 - Keep a PDF's existing output-folder variant when generating another page. New PDFs use the longer source-path ID; existing 8-character-ID folders remain supported.
-- Expose only cursor-first conversion, contextual refresh, source-link repair, and index repair commands. Empty-folder cleanup lives in Settings.
+- Expose cursor-first page conversion, plain-PDF range conversion and insertion, contextual refresh, source-link repair, and index repair commands. Empty-folder cleanup and layout migration live in Settings.
 - Resolve PDF and generated-WebP embeds through Obsidian from the active note before using paths for vault access or provenance. Adjacent source-link checks resolve their targets the same way.
 - Serialize vault rename handling so consecutive source and generated-image moves run in order. Only output paths that match validated provenance move, while conflicts retain their original records.
 - Provide a confirmed Settings migration to the selected generated-image layout. It previews moves, conflicts, missing images, and empty folders. Refresh and index repair do not migrate layouts.
@@ -38,16 +42,14 @@ An **Insert generated PDF page image** command is intentionally out of scope. Ob
 
 ## Current workflow
 
-Use `Convert PDF page embed at cursor` for page-specific PDF embeds. It is the only supported conversion workflow while cursor-first range and full-document conversion are being built.
-
-The old selection and PDF-preview conversion code remains unregistered as a temporary migration bridge. Do not use or manually test it. It will be removed after `Convert PDF pages` and `Convert and insert PDF pages` replace its useful behaviour.
+Use `Convert PDF page embed at cursor` for page-specific embeds. Use `Convert PDF pages` to render or reuse a plain PDF range without changing the note. Use `Convert and insert PDF pages` to replace a plain PDF embed after every requested page succeeds.
 
 ## Next: ordered work
 
 1. Remove superseded commands and the UUID pipeline.
-   - Remove the development-only render and inspect commands once the user-facing cursor commands cover their useful behaviour.
-   - Remove the deprecated selection commands, preview-menu conversion, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
-   - Confirm that no remaining command can create unindexed, non-deterministic generated images.
+   - Keep only the commands listed in Current workflow and the supported Settings actions.
+   - Remove the retired selection and preview conversion routes, UUID output folders, the `uuid` dependency, and formatting code used only by that pipeline.
+   - Confirm that every remaining route records provenance and produces deterministic output paths.
 
 2. Add source links for generated images in the current note, with a preview of intended changes.
     - Resolve each generated image link before reading provenance.

@@ -11,11 +11,14 @@ Use only the isolated test vault for development and manual tests. NEVER inspect
 
 ## Working agreement
 
-1. Make one focused change.
-2. Build and run `npm test`.
-3. The user manually tests the change in the test vault.
-4. Fix any issues, then commit only after the user accepts the result.
-5. Do not push unless the user explicitly asks.
+1. Keep `main` usable for personal use. Start development from `main` on `feature/<topic>` or `dev/<topic>`, never directly on `main`.
+2. Make one focused change, then run `npm run lint`, `npm run build`, and `npm test`.
+3. The user manually tests the change in the isolated test vault.
+4. Commit an accepted change on its development branch. Merge it into `main` only when the user asks to promote it.
+5. Update `manifest.json` and `versions.json` only for an intentional release. Feature commits and branch merges do not bump the plugin version.
+6. Do not push unless the user explicitly asks.
+
+For the next feature, create a branch such as `feature/remove-uuid-pipeline` from the current `main` tip before editing files.
 
 Start the development watcher with:
 
@@ -37,15 +40,19 @@ After a build, reload or disable/enable **PDF Page Embedder** in the test vault.
 - Existing source folders retain their output layout. The longer source ID applies to new layouts only. A later Settings migration will consolidate folders on explicit confirmation.
 - PDF renames are tracked while the plugin is enabled. A rename made while it is disabled cannot be safely matched from the stored paths alone.
 - The old `preservePdfLink` setting is migrated away automatically on plugin load.
+- Plain PDF embeds can render or insert a selected range or full document at the cursor. Every generated page has deterministic output and provenance.
+- Settings can migrate existing generated images to the selected layout after a preview and explicit confirmation.
 
 Useful commands in the test vault:
 
 - `Convert PDF page embed at cursor`
+- `Convert PDF pages`
+- `Convert and insert PDF pages`
 - `Refresh generated PDF image(s)`, from a generated WebP under the cursor or an active PDF
 - `Add source link for generated image at cursor`
 - `Repair generated-image index`
 
-Use **Remove empty folders** under the Generated-image folder maintenance setting for cleanup. The legacy selection and PDF-preview conversion code is not registered and must not be manually tested.
+Use **Remove empty folders** under the Generated-image folder maintenance setting for cleanup. Use **Migrate generated images to current layout** in Settings when an explicit layout change is wanted. The next cleanup task removes the retired selection, preview, UUID, and development-only paths.
 
 ## Test fixtures
 
